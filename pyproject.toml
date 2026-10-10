@@ -1,0 +1,19 @@
+[project]
+name = "jev-trader"
+version = "0.1.0"
+description = "Estrategia determinística + Jev (TypeSafe) como juez + riesgo en código. Modo papel por defecto."
+requires-python = ">=3.10"
+dependencies = []  # solo librería estándar
+
+[project.optional-dependencies]
+sdk = ["typesafe-sdk"]  # SDK oficial, alternativa al cliente urllib incluido
+
+[project.scripts]
+jevtrader = "jevtrader.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["jevtrader"]

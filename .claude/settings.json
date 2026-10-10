@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m unittest:*)",
+      "Bash(python3 -m jevtrader backtest:*)",
+      "Bash(python3 -m jevtrader fetch:*)",
+      "Bash(python3 -m jevtrader news:*)",
+      "Bash(python3 -m jevtrader ping:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Edit(./.env)",
+      "Write(./.env)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_live.py\""
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+.env
+__pycache__/
+*.pyc
+data/jev_cache.jsonl
+data/journal.jsonl
+data/paper_account.json
+reports/
