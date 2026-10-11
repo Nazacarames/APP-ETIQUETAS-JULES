@@ -59,13 +59,14 @@ python3 -m polylens ping                                 # prueba la API de Jev
 
 ## Analista de fútbol argentino (`futbol/`)
 Remates por jugador, minutos de partido y cuotas de bet365 para la Liga Profesional Argentina. El usuario apuesta
-en Provincia de Buenos Aires, donde bet365 tendría licencia del IPLyC (fuentes comerciales; conviene confirmarlo).
+en Provincia de Buenos Aires y **confirmó con bet365 que puede acceder y apostar desde ahí** (octubre de 2026).
 
 Reglas propias:
 1. **Solo análisis y papel.** Toda sugerencia va primero al diario en papel (`data/futbol/papel.jsonl`) con 100 USD,
    cuarto de Kelly y tope de 3 % por apuesta. Apostar plata real es decisión del usuario.
-2. **Nada de acceso automático a bet365** (sus reglas lo prohíben; el hook lo bloquea). Sus cuotas llegan por
-   API-Football (casa ID 8) o las carga el usuario en `data/futbol/cuotas.csv`.
+2. **El usuario entra a bet365; el programa no.** Que su cuenta esté habilitada no autoriza bots: las reglas de
+   bet365 prohíben el acceso automático y el hook lo bloquea. Las cuotas llegan por API-Football (casa ID 8) o las
+   carga el usuario en `data/futbol/cuotas.csv`. Si bet365 da un permiso escrito o una API oficial, se integra eso.
 3. **"Bugs en cuotas" no es una estrategia:** las cuotas con errores evidentes la casa las anula. Lo que se busca
    es valor: cuota × probabilidad del modelo − 1 ≥ 5 %.
 4. **Sin mirar el futuro.** El modelo predice cada partido solo con los anteriores. Si tocás `futbol/modelo.py`,

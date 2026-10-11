@@ -89,7 +89,9 @@ no; la única ventaja aparece buscando la mejor cuota entre decenas de casas.
 
 ## Analista de fútbol argentino (`python3 -m futbol`)
 Analiza la Liga Profesional Argentina con datos de [API-Football](https://www.api-football.com) para apuestas
-en bet365 (Provincia de Buenos Aires). Solo analiza y anota en papel: las apuestas las decide y las hace el usuario.
+en bet365 desde Provincia de Buenos Aires, donde el usuario confirmó con bet365 que puede acceder y apostar.
+Solo analiza y anota en papel: las apuestas las decide y las hace el usuario desde su cuenta; el programa no entra
+a bet365 (sus reglas prohíben el acceso automático) y toma las cuotas de API-Football o de la carga manual.
 
 - **Remates por jugador.** Para cada titular calcula la probabilidad de 1, 2 o 3 remates (totales y al arco).
   Usa su ritmo por 90 minutos contraído hacia el promedio de su posición, los minutos que juega de titular, cuánto
