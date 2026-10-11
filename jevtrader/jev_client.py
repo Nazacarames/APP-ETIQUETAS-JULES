@@ -23,6 +23,7 @@ import hashlib
 import json
 import random
 import re
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -163,6 +164,7 @@ class AnswerCache:
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self._mem: dict[str, dict] = {}
+        self._lock = threading.Lock()  # se puede usar desde varios hilos (evaluaciones en paralelo)
         if self.path.exists():
             for line in self.path.read_text().splitlines():
                 if line.strip():
@@ -178,10 +180,11 @@ class AnswerCache:
         return self._mem.get(key)
 
     def put(self, key: str, body: dict) -> None:
-        self._mem[key] = body
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a") as f:
-            f.write(json.dumps({"key": key, "body": body}) + "\n")
+        with self._lock:
+            self._mem[key] = body
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self.path.open("a") as f:
+                f.write(json.dumps({"key": key, "body": body}) + "\n")
 
 
 # --------------------------------------------------------------- cliente ----

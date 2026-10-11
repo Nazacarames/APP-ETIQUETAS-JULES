@@ -79,27 +79,52 @@ def bootstrap_mean(xs, n=4000, seed=1):
     return statistics.fmean(xs), means[int(0.025 * n)], means[int(0.975 * n)]
 
 
+def make_judge(kind: str):
+    """MockJev (heurística local) o Jev real con cache en data/jev_cache.jsonl (reproducible)."""
+    if kind == "mock":
+        return JevJudge(MockJev(), GateConfig()), "Base+MockJev"
+    from dataclasses import replace
+    from jevtrader.config import load_settings
+    from jevtrader.jev_client import AnswerCache, JevClient
+    s = load_settings(ROOT / ".env")
+    if not s.jev.api_key:
+        sys.exit("Falta TYPESAFE_API_KEY (en el entorno o en .env) para --judge jev.")
+    cfg = replace(s.jev, max_retries=max(4, s.jev.max_retries), timeout_s=max(15.0, s.jev.timeout_s))
+    client = JevClient(cfg, cache=AnswerCache(ROOT / "data" / "jev_cache.jsonl"))
+    return JevJudge(client, GateConfig()), "Base+Jev"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--json")
+    ap.add_argument("--judge", choices=("mock", "jev"), default="mock",
+                    help="juez del filtro: mock (heurística local) o jev (API real, usa TYPESAFE_API_KEY)")
+    ap.add_argument("--workers", type=int, default=4, help="monedas evaluadas en paralelo con el juez")
+    ap.add_argument("--judge-only", action="store_true", help="solo la sección 1 (por activo y vetos)")
     args = ap.parse_args()
     data = {s: load(s) for s in SEEN + FRESH}
     out = {"per_asset": {}, "grid": [], "costs": [], "trades": {}, "portfolio": {}, "h4": {}}
 
     # 1) por activo --------------------------------------------------------
+    judge, jlabel = make_judge(args.judge)
+    print(f"\nJuez: {jlabel} — corriendo {len(data)} monedas con el filtro...", flush=True)
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=args.workers) as ex:
+        judged = dict(zip(data, ex.map(lambda s: run(data[s], judge=judge, name=jlabel), data)))
     print("\n1) Por activo (diario, 10 bps comisión + 5 bps slippage por lado, riesgo 1 % por trade)")
     print(f"{'activo':<10}{'grupo':<7}{'tramo':<4}{'variante':<14}{'ret':>9}{'maxDD':>8}{'sharpe':>8}{'trades':>7}")
-    judge = JevJudge(MockJev(), GateConfig())
     pooled = {"A": [], "B_seen": [], "B_fresh": []}
+    vetos = {"A": {"entrada": [], "vetada": []}, "B": {"entrada": [], "vetada": []}}
+    errors = 0
     for sym, bars in data.items():
         group = "visto" if sym in SEEN else "nuevo"
         a, z = split(bars)
         bh = buy_and_hold(bars, CostConfig())
         base = run(bars)
-        mock = run(bars, judge=judge, name="Base+MockJev")
+        filt = judged[sym]
         rows = {}
         for tramo, (lo, hi) in (("A", (a, z)), ("B", (z, None))):
-            for label, r in (("Comprar/mant.", bh), ("Base", base), ("Base+MockJev", mock)):
+            for label, r in (("Comprar/mant.", bh), ("Base", base), (jlabel, filt)):
                 m = seg(r, bars, lo, hi, 365)
                 rows[f"{tramo}:{label}"] = m
                 print(f"{sym:<10}{group:<7}{tramo:<4}{label:<14}{fmt(m['total_return']):>9}{fmt(m['max_drawdown']):>8}"
@@ -108,8 +133,34 @@ def main():
         for t in base.trades:
             key = "A" if ts_of[t.entry_i] < z else ("B_seen" if group == "visto" else "B_fresh")
             pooled[key].append(t.ret_pct)
+        for d in filt.decisions:
+            if any(str(r).startswith("jev no disponible") for r in d.get("reasons", [])):
+                errors += 1
+                continue
+            if d.get("shadow_ret") is not None and d.get("action") in ("entrada", "vetada"):
+                vetos["A" if ts_of[d["i"]] < z else "B"][d["action"]].append(d["shadow_ret"])
         out["per_asset"][sym] = {"group": group, "holdout_from": bars[next(i for i, b in enumerate(bars) if b.ts == z)].date,
-                                 "rows": rows, "veto": veto_analysis(mock)}
+                                 "rows": rows, "veto": veto_analysis(filt)}
+
+    print(f"\n   ¿Ayudan los vetos de {jlabel}? (retorno de cada señal simulada como si se hubiera tomado)")
+    out["vetos"] = {}
+    for tramo in ("A", "B"):
+        tk, vt = vetos[tramo]["entrada"], vetos[tramo]["vetada"]
+        mt, lo_t, hi_t = bootstrap_mean(tk)
+        mv, lo_v, hi_v = bootstrap_mean(vt)
+        out["vetos"][tramo] = {"taken_n": len(tk), "taken_mean": mt, "vetoed_n": len(vt), "vetoed_mean": mv,
+                               "taken_win": sum(x > 0 for x in tk) / len(tk) if tk else 0,
+                               "vetoed_win": sum(x > 0 for x in vt) / len(vt) if vt else 0}
+        print(f"   tramo {tramo}: aprobadas {len(tk):>3} · media {fmt(mt)} [{fmt(lo_t)}, {fmt(hi_t)}]"
+              f" | vetadas {len(vt):>3} · media {fmt(mv)} [{fmt(lo_v)}, {fmt(hi_v)}]")
+    out["judge"] = {"label": jlabel, "api_errors": errors,
+                    "calls": sum(r.jev_calls for r in judged.values()),
+                    "est_tokens": sum(r.jev_est_tokens for r in judged.values())}
+    print(f"   llamadas al juez: {out['judge']['calls']} · errores de API (contados aparte, no como veto): {errors}")
+    if args.judge_only:
+        if args.json:
+            Path(args.json).write_text(json.dumps(out, default=str, ensure_ascii=False))
+        return
 
     # 2) grilla de robustez (solo tramo A) ----------------------------------
     print("\n2) Robustez: Sharpe mediano en el tramo A (11 activos) por combinación de parámetros")
