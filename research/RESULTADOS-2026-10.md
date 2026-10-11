@@ -80,3 +80,34 @@ Cartera equiponderada de las 11 monedas, rebalanceo diario, 1.998 días (abril d
 - **Rachas:** la caída histórica, con los trades en su orden real, fue de 32,3 R. Es peor que el p95 del Monte Carlo por bloques (26,9 R): las pérdidas se agrupan en el tiempo porque las monedas se mueven juntas. Hay que planificar el riesgo con la caída histórica, no con la mediana.
 
 **Conclusión:** la estrategia tiene un perfil de tendencia real (pocas ganancias grandes, muchas pérdidas chicas), pero la evidencia **no alcanza para afirmar una ventaja** después de corregir por las 27 pruebas, y depende mucho de 2020. Los umbrales del Monte Carlo están en `research/PROTOCOLO-DEMO.md`.
+
+## Anexo: Jev real como filtro de entrada (11 de octubre de 2026)
+
+`TYPESAFE_API_KEY=... python3 research/evaluate.py --judge jev`
+
+- **Corrida:** modelo `jev-1.13.0`, 452 consultas, 0 errores de API. Costo estimado de unos US$ 0,01 (≈ 194.000 tokens de entrada).
+- **Caché:** las respuestas quedaron en `data/jev_cache.jsonl`, que no está en git; la segunda corrida es gratis.
+- **Condiciones:** los mismos umbrales del juez que antes, sin ajustar nada. El tramo B de la estrategia base ya se había mirado, pero el de Jev no, y no se tocó ningún parámetro de Jev después de verlo.
+
+**Medianas por grupo (Sharpe · retorno · máx. caída · trades):**
+
+| Grupo | Tramo | Estrategia base | Base + Jev real | Base + MockJev |
+|---|---|---|---|---|
+| Vistos (3) | A | 0,98 · +57,1 % · −11,1 % · 56 | 0,81 · +40,7 % · −9,1 % · 49 | 0,75 · +13,5 % · −3,5 % · 38 |
+| Vistos (3) | B | 0,32 · +2,9 % · −4,2 % · 26 | 0,35 · +2,1 % · −2,8 % · 18 | 0,36 · +0,8 % · −1,3 % · 14 |
+| Nuevos (8) | A | 0,39 · +19,5 % · −15,8 % · 157 | 0,27 · +5,3 % · −9,4 % · 145 | 0,26 · +3,5 % · −5,1 % · 92 |
+| **Nuevos (8)** | **B** | **0,28 · +3,5 % · −7,5 % · 58** | **0,04 · +0,6 % · −6,1 % · 56** | 0,04 · +0,1 % · −1,6 % · 34 |
+
+- **Sharpe frente a la base:** Jev lo mejoró en 0 de 11 monedas en el tramo A y en 6 de 11 en el B. En las 8 monedas nuevas, la mediana del tramo B bajó de 0,28 a 0,04.
+- **Vetos:** cada señal se simuló como si se hubiera tomado.
+
+  | Tramo | Aprobadas por Jev | Vetadas por Jev |
+  |---|---|---|
+  | A | 194, media +19,3 % (IC 95 % [+9,6 %, +29,9 %]), 39 % ganadoras | 123, media +16,6 % ([+4,2 %, +32,1 %]), 41 % ganadoras |
+  | B | 74, media +5,9 % ([−1,6 %, +17,0 %]), 38 % ganadoras | 61, media **+12,3 %** ([+1,5 %, +27,9 %]), 38 % ganadoras |
+
+**Conclusión:** como filtro de entrada para esta estrategia, Jev real **no muestra capacidad de distinguir** las buenas señales de las malas. Los vetados ganan tan seguido como los aprobados, y en el tramo B rindieron más. Achica un poco las caídas porque opera menos, pero empeora el Sharpe. Coincide con los backtests independientes (egrm07, TradeRank).
+
+**Decisión:** Jev queda en **modo sombra** (`GATE_SHADOW=true`) durante el Demo Mode, sin vetar. Cualquier pregunta nueva para Jev se valida hacia adelante en sombra, no con este histórico. El tramo B ya está usado y probar preguntas sobre él sería buscar a ciegas.
+
+En triage de noticias (`python3 -m jevtrader news`), Jev real sí separa bien lo que es del activo (0,95–0,98) de lo que no (0,02–0,17) y clasifica el tipo de evento con sentido. Ese uso no tiene backtest posible sin un histórico de titulares.

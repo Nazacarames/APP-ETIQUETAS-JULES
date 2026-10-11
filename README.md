@@ -119,6 +119,7 @@ Cómo se comporta:
 
 - `python3 research/evaluate.py`: backtest de 11 monedas con holdout, grilla de 27 parámetros, costos y velas de 4 h. Resultados en [research/RESULTADOS-2026-10.md](research/RESULTADOS-2026-10.md).
 - `python3 research/significance.py`: Sharpe deflactado, probabilidad de sobreajuste (PBO) y Monte Carlo en R.
+- `TYPESAFE_API_KEY=... python3 research/evaluate.py --judge jev`: lo mismo con **Jev real** como filtro. Resultado: Jev **no mejora** la estrategia. Los vetados rinden igual o más que los aprobados, y por eso queda en modo sombra (detalle en el anexo de RESULTADOS).
 - **Resumen honesto:** controla muy bien las caídas, pero la ventaja **no es estadísticamente significativa** después de corregir por las combinaciones probadas (Sharpe deflactado 75,5 %, PBO 36 %). Además depende de pocos trades enormes, en especial de 2020.
 
 ## Cómo se usa con Claude Code
