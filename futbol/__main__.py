@@ -286,6 +286,20 @@ def cmd_papel(a, cfg):
     rows = load_appearances(cfg.data_dir, comps(a, cfg))
     scores = dict(parse_score(t) for t in (a.resultado or []))
     s = valor.journal_settle(cfg.data_dir / "papel.jsonl", rows, cfg.bankroll, scores)
+    if a.clv:
+        api = api_from(cfg)
+
+        def fetch(fid):
+            try:
+                resp = api.fixture_odds(fid)
+                return resp[0] if resp else None
+            except ApiError as exc:
+                say(f"partido {fid}: {exc}")
+                return None
+        c = valor.journal_clv(cfg.data_dir / "papel.jsonl", fetch)
+        if c["with_clv"]:
+            print(f"valor de cierre: {c['with_clv']} apuestas · CLV promedio {c['mean_clv']:+.1%} · "
+                  f"le ganaron al cierre {c['beat_close']:.0%}")
     if not s.get("bets"):
         print("El diario en papel está vacío: usá python3 -m futbol partido <id> --anotar")
         return
@@ -295,8 +309,20 @@ def cmd_papel(a, cfg):
               f"capital {cfg.bankroll:.0f} → {s['bankroll']:.2f} USD · aciertos esperados {s['expected_win_rate']:.0%}")
 
 
+def recent_players(apps: list[dict], info: dict, max_days: int = 120) -> list[dict]:
+    """Jugadores con partidos en la base local cercanos a la fecha del partido (si no, sus datos no sirven)."""
+    from polylens.study import parse_ts
+    ts = parse_ts(info.get("date")) or 0
+    seen = {}
+    for r in apps:
+        if ts - max_days * 86_400 <= r["ts"] < ts:
+            seen[r["player"]] = {"player": r["player"], "name": r["name"]}
+    return list(seen.values())
+
+
 def cmd_cuotas(a, cfg):
     api = api_from(cfg)
+    apps = load_appearances(cfg.data_dir, comps(a, cfg))
     min_edge = cfg.min_edge if a.min_valor is None else a.min_valor
     targets = [{"fixture": f} for f in a.partido or []]
     if a.fecha:
@@ -336,6 +362,15 @@ def cmd_cuotas(a, cfg):
             print("  Pinnacle no tiene cuotas de este partido: no hay referencia para comparar.")
         else:
             print(f"  Ningún mercado de bet365 supera a Pinnacle por {min_edge:.0%} o más.")
+        prev = cq.save_snapshot(cfg.data_dir, info["fixture"], cq.snapshot_rows(item))
+        if prev:
+            moves = cq.movements(prev, cq.snapshot_rows(item))
+            lag = [m for m in moves if "bet365_lag" in m]
+            for m in lag:
+                print(f"  ¡bet365 atrasado! Pinnacle bajó {m['market']} {m['selection']} de {m['from']:.2f} a {m['to']:.2f} "
+                      f"y bet365 sigue pagando {m['bet365_lag']:.2f}")
+            if moves and not lag:
+                print(f"  {len(moves)} cuota(s) se movieron desde la consulta anterior; bet365 acompañó a Pinnacle.")
         players = cq.bet365_players(item)
         flags = cq.coherence_flags(players)
         for f in flags:
@@ -343,13 +378,20 @@ def cmd_cuotas(a, cfg):
                   f"'{f['than']}' a {f['than_odd']:.2f}, y debería pagar más.")
         if players and a.jugadores:
             ranked = sorted(players.items(), key=lambda kv: kv[1]["sot"].get(1) or 99)[:a.jugadores]
-            print(f"  Jugadores según bet365 (cuota; entre paréntesis, probabilidad implícita con margen):")
+            known = recent_players(apps, info)
+            print(f"  Jugadores según bet365 (cuota; entre paréntesis, probabilidad implícita con margen"
+                  f"{'; L5 = 1+ al arco en sus últimos 5 de titular' if known else ''}):")
             for name, p in ranked:
                 cells = []
                 for label, odd in (("1+ rem", p["shots"].get(1)), ("2+ rem", p["shots"].get(2)),
                                    ("1+ arco", p["sot"].get(1)), ("gol", p["goal"])):
                     cells.append(f"{label} {odd:.2f} ({1 / odd:.0%})" if odd else f"{label} –")
-                print(f"    {name[:24]:<24} " + " · ".join(cells))
+                hit = ""
+                match = valor.match_player(name, known) if known else None
+                if match:
+                    h, n = cq.hit_rate(apps, match["player"], "sot", 1, 5)
+                    hit = f" · L5 {h}/{n}" if n else ""
+                print(f"    {name[:24]:<24} " + " · ".join(cells) + hit)
         if a.anotar and tv:
             n = valor.journal_add_team(cfg.data_dir / "papel.jsonl", info["fixture"], tv, title)
             say(f"  {n} apuesta(s) anotadas en papel")
@@ -381,6 +423,8 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "papel":
             s.add_argument("--resultado", action="append",
                            help="resultado de un partido para liquidar mercados de equipo: ID:2-1 o ID:2-1:1-0")
+            s.add_argument("--clv", action="store_true",
+                           help="comparar cada apuesta con la cuota de cierre (1 pedido por partido ya empezado)")
     s = sub.add_parser("remates", help="ritmo de remates por equipo y jugador")
     s.add_argument("--competencias")
     s.add_argument("--equipo")

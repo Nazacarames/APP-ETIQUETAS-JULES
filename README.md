@@ -108,8 +108,10 @@ a bet365 (sus reglas prohíben el acceso automático) y toma las cuotas de API-F
   pero sí las cuotas de cada partido, de bet365 y de otras 8 casas, con los planteles actuales. Compara bet365 contra
   Pinnacle sin margen en ganador, goles y ambos marcan. También marca incoherencias de bet365 en mercados de jugadores:
   si un gol paga menos que un remate al arco, o 2+ remates menos que 1+, uno de los precios está mal. Muestra la
-  probabilidad implícita de cada jugador y con `--anotar` deja las de valor en papel. `papel --resultado ID:2-1`
-  las liquida.
+  probabilidad implícita de cada jugador, su acierto en los últimos 5 partidos si hay datos recientes, y avisa cuando
+  Pinnacle movió una cuota y bet365 no. Con `--anotar` deja las de valor en papel; `papel --resultado ID:2-1` las
+  liquida y `papel --clv` mide si le ganaron a la cuota de cierre. Es el método de las apps de valor
+  (`research/COMO-TRABAJAN-LAS-APPS.md`), con margen quitado por el método "power".
 - **Jev** lee titulares y avisa si un jugador no juega o está en duda; la formación oficial manda.
 - **Cupo gratis:** 100 pedidos por día y solo temporadas 2022–2024. Un partido = 1 pedido; `sync` sigue donde quedó.
   Para la temporada actual (2026) hace falta un plan pago.

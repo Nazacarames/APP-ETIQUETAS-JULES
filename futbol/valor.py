@@ -208,3 +208,40 @@ def journal_settle(path: Path, appearances: list[dict], bankroll: float = 100.0,
             "pending": sum(e["status"] == "pendiente" for e in entries), "staked": round(staked, 2),
             "pnl": round(pnl, 2), "roi": pnl / staked if staked else None, "bankroll": round(bankroll + pnl, 2),
             "expected_win_rate": (sum(e["p"] for e in settled) / len(settled)) if settled else None}
+
+
+def journal_clv(path: Path, fetch_item, now: float | None = None) -> dict:
+    """Agrega el valor de cierre (CLV) a las apuestas cuyo partido ya empezó. `fetch_item(fixture)` devuelve las
+    cuotas del partido (o None). Un CLV promedio positivo sostenido es la señal de ventaja que usan las apps de valor."""
+    from datetime import datetime
+
+    from .cuotas import closing_value
+    path = Path(path)
+    if not path.exists():
+        return {"with_clv": 0}
+    now = now or time.time()
+    entries = [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
+    cache: dict = {}
+    for e in entries:
+        if "clv" in e:
+            continue
+        fid = e["fixture"]
+        if fid not in cache:
+            cache[fid] = fetch_item(fid)
+        item = cache[fid]
+        if not item:
+            continue
+        date = (item.get("fixture") or {}).get("date")
+        try:
+            kickoff = datetime.fromisoformat(str(date).replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            continue
+        if now < kickoff:
+            continue  # todavía no cerró el mercado
+        r = closing_value(e, item)
+        if r:
+            e.update(clv=round(r["clv"], 4), clv_vs=r["vs"])
+    path.write_text("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in entries), encoding="utf-8")
+    clvs = [e["clv"] for e in entries if "clv" in e]
+    return {"with_clv": len(clvs), "mean_clv": sum(clvs) / len(clvs) if clvs else None,
+            "beat_close": sum(1 for c in clvs if c > 0) / len(clvs) if clvs else None}

@@ -85,12 +85,15 @@ python3 -m futbol remates --top 20               # ritmo de remates por equipo y
 python3 -m futbol partido <id> [--api] [--anotar]
 python3 -m futbol minutos [--minuto 70 --resultado 1-0 --cuota 2.1]
 python3 -m futbol noticias --partido <id> --rss <url>
-python3 -m futbol papel [--resultado ID:2-1]      # liquida el diario en papel
+python3 -m futbol papel [--resultado ID:2-1] [--clv]   # liquida el diario en papel y mide valor de cierre
 python3 -m futbol cuotas --fecha AAAA-MM-DD       # hoy: bet365 contra Pinnacle e incoherencias de bet365
 ```
 `futbol/cuotas.py`: bet365 contra Pinnacle sin margen en mercados del partido (el hándicap asiático queda afuera porque
 las casas nombran distinto las líneas) e incoherencias entre mercados de jugadores de bet365 (gol ≤ 1+ al arco ≤
-1+ remate; k+1 ≤ k). Betano tiene mercados de jugadores mal etiquetados en la API: no se usa como referencia.
+1+ remate; k+1 ≤ k). Betano tiene mercados de jugadores mal etiquetados en la API: no se usa como referencia. El margen se quita con el
+método "power" (mejor que el multiplicativo en 56.537 partidos; `research/devig_metodos.py`). Cada consulta guarda
+una foto en `data/futbol/snapshots/` para detectar cuando Pinnacle se mueve y bet365 no. Cómo trabajan las apps
+del rubro y qué se tomó de cada una: `research/COMO-TRABAJAN-LAS-APPS.md`.
 
 ## Skills del proyecto
 - `/polymarket-analysis` — flujo de análisis completo y cómo interpretarlo sin engañarse.

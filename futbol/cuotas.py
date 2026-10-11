@@ -16,7 +16,10 @@ primero al diario en papel.
 from __future__ import annotations
 
 import re
+import json
+import time
 from collections import defaultdict
+from pathlib import Path
 
 REFERENCE = "Pinnacle"
 BOOK = "Bet365"
@@ -61,11 +64,39 @@ def outcome_groups(market: str, selections: dict[str, float]) -> list[dict[str, 
     return [g for g in by_line.values() if len(g) == 2]
 
 
-def fair_probs(group: dict[str, float]) -> dict[str, float]:
-    """Quita el margen repartiéndolo en proporción (método multiplicativo)."""
-    inv = {k: 1 / o for k, o in group.items() if o > 1}
+def _bisect(f, lo: float, hi: float, iters: int = 80) -> float:
+    for _ in range(iters):
+        mid = (lo + hi) / 2
+        if f(mid) > 0:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+def fair_probs(group: dict[str, float], method: str = "power") -> dict[str, float]:
+    """Quita el margen de un grupo de cuotas que suma 100 %.
+
+    - "multiplicative": reparte el margen en proporción a cada probabilidad implícita.
+    - "power": p_i = (1/cuota_i)^k con k tal que sumen 1. Saca más margen de los batacazos (sesgo
+      favorito–batacazo); en la literatura y en research/devig_metodos.py rinde igual o mejor.
+    - "shin": modelo de Shin (supone una fracción de apostadores con información privilegiada).
+    """
+    inv = {k: 1 / o for k, o in group.items() if o and o > 1}
     total = sum(inv.values())
-    return {k: v / total for k, v in inv.items()} if total else {}
+    if not total:
+        return {}
+    if method == "multiplicative" or total <= 1:
+        return {k: v / total for k, v in inv.items()}
+    if method == "power":
+        k = _bisect(lambda x: sum(v ** x for v in inv.values()) - 1, 1.0, 10.0)
+        return {key: v ** k for key, v in inv.items()}
+    if method == "shin":
+        def probs(z):
+            return {key: ((z * z + 4 * (1 - z) * v * v / total) ** 0.5 - z) / (2 * (1 - z)) for key, v in inv.items()}
+        z = _bisect(lambda x: sum(probs(x).values()) - 1, 0.0, 0.4)
+        return probs(z)
+    raise ValueError(f"método desconocido: {method}")
 
 
 def team_value(item: dict, book: str = BOOK, reference: str = REFERENCE, min_edge: float = 0.0,
@@ -192,3 +223,89 @@ def league_fixtures_for_date(api, date: str, league: int, max_pages: int = 40) -
             if (r.get("league") or {}).get("id") == league and str((r.get("fixture") or {}).get("date", "")).startswith(date):
                 out.append({"fixture": r["fixture"]["id"], "date": r["fixture"]["date"], "home": None, "away": None})
     return out
+
+
+# -- movimientos de cuotas ("dropping odds") --------------------------------------------------------
+def snapshot_rows(item: dict, books=(BOOK, REFERENCE)) -> list[dict]:
+    """Foto de las cuotas de un partido para las casas que interesan."""
+    t = int(time.time())
+    rows = []
+    for book, markets in book_markets(item).items():
+        if book not in books:
+            continue
+        for market, sel in markets.items():
+            for selection, odd in sel.items():
+                rows.append({"t": t, "update": item.get("update"), "book": book, "market": market,
+                             "selection": selection, "odd": odd})
+    return rows
+
+
+def save_snapshot(data_dir: Path, fixture: int, rows: list[dict]) -> list[dict]:
+    """Agrega la foto al historial del partido y devuelve la foto anterior (vacía si es la primera)."""
+    path = Path(data_dir) / "snapshots" / f"{fixture}.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    prev: list[dict] = []
+    if path.exists():
+        lines = [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
+        if lines:
+            last_t = max(r["t"] for r in lines)
+            prev = [r for r in lines if r["t"] == last_t]
+    if rows and (not prev or prev[0].get("update") != rows[0].get("update")):
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+    return prev
+
+
+def movements(prev: list[dict], cur: list[dict], min_move: float = 0.03) -> list[dict]:
+    """Cambios de cuota entre dos fotos. Marca cuando Pinnacle se movió y bet365 no la siguió."""
+    before = {(r["book"], r["market"], r["selection"]): r["odd"] for r in prev}
+    now = {(r["book"], r["market"], r["selection"]): r["odd"] for r in cur}
+    out = []
+    for (book, market, selection), odd in now.items():
+        old = before.get((book, market, selection))
+        if not old or abs(odd / old - 1) < min_move:
+            continue
+        row = {"book": book, "market": market, "selection": selection, "from": old, "to": odd, "change": odd / old - 1}
+        if book == REFERENCE:
+            b_old, b_now = before.get((BOOK, market, selection)), now.get((BOOK, market, selection))
+            if b_old and b_now and abs(b_now / b_old - 1) < min_move / 2 and (odd < old) and b_now > odd:
+                row["bet365_lag"] = b_now  # Pinnacle bajó la cuota y bet365 quedó igual: posible precio viejo
+        out.append(row)
+    return sorted(out, key=lambda r: (0 if "bet365_lag" in r else 1, r["change"]))
+
+
+# -- valor de cierre (CLV) ---------------------------------------------------------------------------
+def closing_value(entry: dict, item: dict) -> dict | None:
+    """Compara la cuota tomada con el cierre: contra Pinnacle sin margen (equipo) o contra bet365 (jugadores).
+
+    CLV > 0 = conseguiste un precio mejor que el del cierre. Es el mejor indicador temprano de ventaja real:
+    no hace falta esperar cientos de resultados."""
+    markets = book_markets(item)
+    if entry.get("kind") == "equipo":
+        ref = (markets.get(REFERENCE) or {}).get(entry["market"]) or {}
+        for group in outcome_groups(entry["market"], ref):
+            if entry["selection"] in group:
+                p = fair_probs(group)[entry["selection"]]
+                return {"close_fair_odd": 1 / p, "clv": entry["odd"] * p - 1, "vs": "Pinnacle sin margen"}
+        return None
+    from .valor import match_player
+    wanted = entry.get("stat")
+    for market, sel in (markets.get(BOOK) or {}).items():
+        if "Player Shots" not in market or (("On Target" in market) != (wanted == "sot")):
+            continue
+        for name_k, odd in sel.items():
+            m = _PLAYER_K.match(name_k)
+            if not m or int(m.group(2)) != entry.get("k"):
+                continue
+            if match_player(entry.get("name", ""), [{"player": 1, "name": m.group(1)}]):
+                return {"close_odd": odd, "clv": entry["odd"] / odd - 1, "vs": "cierre de bet365"}
+    return None
+
+
+def hit_rate(appearances: list[dict], player: int, stat: str, k: int, last: int = 5,
+             before_ts: int | None = None) -> tuple[int, int]:
+    """En cuántos de sus últimos `last` partidos de titular llegó a `k` (antes de `before_ts`)."""
+    games = [a for a in appearances if a["player"] == player and a["started"]
+             and (before_ts is None or a["ts"] < before_ts)]
+    games = games[-last:]
+    return sum(1 for a in games if a[stat] >= k), len(games)

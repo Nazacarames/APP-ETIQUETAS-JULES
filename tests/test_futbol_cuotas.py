@@ -44,8 +44,7 @@ class TestTeamValue(unittest.TestCase):
     def test_fair_probability_and_value(self):
         rows = cq.team_value(item(pinnacle=PIN, bet365=B365), min_edge=-1)
         home = next(r for r in rows if r["market"] == "Match Winner" and r["selection"] == "Home")
-        inv = {"Home": 1 / 2.0, "Draw": 1 / 3.4, "Away": 1 / 4.2}
-        p = inv["Home"] / sum(inv.values())
+        p = cq.fair_probs({"Home": 2.0, "Draw": 3.4, "Away": 4.2})["Home"]  # método power por defecto
         self.assertAlmostEqual(home["p"], p)
         self.assertAlmostEqual(home["ev"], p * 2.25 - 1)
         self.assertEqual(rows[0]["selection"], "Home")  # el de más valor primero
@@ -59,6 +58,20 @@ class TestTeamValue(unittest.TestCase):
     def test_broken_groups_are_ignored(self):
         bad = [bet("Match Winner", {"Home": 5.0, "Draw": 5.0, "Away": 5.0})]  # margen negativo: datos que no cierran
         self.assertEqual(cq.team_value(item(pinnacle=bad, bet365=B365), min_edge=-1), [])
+
+    def test_devig_methods(self):
+        g = {"Home": 1.5, "Draw": 4.2, "Away": 7.5}
+        probs = {m: cq.fair_probs(g, m) for m in ("multiplicative", "power", "shin")}
+        for m, p in probs.items():
+            self.assertAlmostEqual(sum(p.values()), 1.0, places=6, msg=m)
+        # power y Shin le sacan más margen al batacazo que el multiplicativo (sesgo favorito–batacazo)
+        self.assertLess(probs["power"]["Away"], probs["multiplicative"]["Away"])
+        self.assertLess(probs["shin"]["Away"], probs["multiplicative"]["Away"])
+        self.assertGreater(probs["power"]["Home"], probs["multiplicative"]["Home"])
+        fair = {"Yes": 2.0, "No": 2.0}  # sin margen: todos los métodos devuelven lo mismo
+        self.assertAlmostEqual(cq.fair_probs(fair, "power")["Yes"], 0.5)
+        with self.assertRaises(ValueError):
+            cq.fair_probs(g, "otro")
 
     def test_groups(self):
         g = cq.outcome_groups("Goals Over/Under", {"Over 2.5": 2, "Under 2.5": 1.8, "Over 3.5": 3})
@@ -81,6 +94,52 @@ class TestPlayers(unittest.TestCase):
         # Pedro: 2+ remates (1.70) paga menos que 1+ (1.80) y 1+ al arco (1.60) paga menos que 1+ remate (1.80)
         self.assertEqual(checks, {("Pedro Gómez", "2+ > 1+ remates"), ("Pedro Gómez", "al arco > remates")})
         self.assertEqual(cq.coherence_flags(cq.bet365_players(item(bet365=B365)), tolerance=0.5), [])
+
+
+class TestMovementsClvHitRate(unittest.TestCase):
+    def test_snapshot_and_movements(self):
+        with tempfile.TemporaryDirectory() as d:
+            first = cq.snapshot_rows(item(pinnacle=PIN, bet365=B365))
+            self.assertEqual(cq.save_snapshot(Path(d), 77, first), [])
+            pin2 = [bet("Match Winner", {"Home": 1.8, "Draw": 3.6, "Away": 4.6})] + PIN[1:]
+            moved = item(pinnacle=pin2, bet365=B365)
+            moved["update"] = "2026-10-12T13:00:00+00:00"
+            second = cq.snapshot_rows(moved)
+            prev = cq.save_snapshot(Path(d), 77, second)
+            self.assertEqual(len(prev), len(first))
+            mv = cq.movements(prev, second)
+            lag = [m for m in mv if "bet365_lag" in m]
+            self.assertEqual([(m["selection"], m["from"], m["to"], m["bet365_lag"]) for m in lag],
+                             [("Home", 2.0, 1.8, 2.25)])  # Pinnacle bajó y bet365 quedó en 2,25
+
+    def test_clv(self):
+        closing = item(pinnacle=[bet("Match Winner", {"Home": 1.9, "Draw": 3.6, "Away": 4.6})], bet365=B365)
+        e = {"kind": "equipo", "market": "Match Winner", "selection": "Home", "odd": 2.25}
+        r = cq.closing_value(e, closing)
+        p = cq.fair_probs({"Home": 1.9, "Draw": 3.6, "Away": 4.6})["Home"]
+        self.assertAlmostEqual(r["clv"], 2.25 * p - 1)
+        e = {"stat": "shots", "k": 1, "name": "Juan Pérez", "odd": 1.4}
+        self.assertAlmostEqual(cq.closing_value(e, closing)["clv"], 1.4 / 1.3 - 1)
+        self.assertIsNone(cq.closing_value({**e, "name": "Nadie"}, closing))
+
+    def test_journal_clv_only_after_kickoff(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "papel.jsonl"
+            valor.journal_add_team(path, 77, [{"market": "Match Winner", "selection": "Home", "odd": 2.25, "p": 0.5,
+                                               "stake": 2.0}])
+            closing = item(pinnacle=[bet("Match Winner", {"Home": 1.9, "Draw": 3.6, "Away": 4.6})], bet365=B365)
+            kickoff = 1_791_835_200  # 2026-10-12 20:00 UTC, la fecha de item()
+            self.assertEqual(valor.journal_clv(path, lambda f: closing, now=kickoff - 60)["with_clv"], 0)
+            r = valor.journal_clv(path, lambda f: closing, now=kickoff + 60)
+            self.assertEqual(r["with_clv"], 1)
+            self.assertGreater(r["mean_clv"], 0)
+            self.assertEqual(r["beat_close"], 1.0)
+
+    def test_hit_rate(self):
+        apps = [{"player": 1, "started": True, "ts": t, "sot": s} for t, s in enumerate([1, 0, 2, 1, 1, 0, 3])]
+        apps.append({"player": 1, "started": False, "ts": 99, "sot": 5})
+        self.assertEqual(cq.hit_rate(apps, 1, "sot", 1, last=5), (4, 5))
+        self.assertEqual(cq.hit_rate(apps, 1, "sot", 1, last=5, before_ts=3), (2, 3))
 
 
 class TestSettle(unittest.TestCase):
