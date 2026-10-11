@@ -98,7 +98,7 @@ Binance bloquea algunas ubicaciones, entre ellas muchos servidores en la nube (e
 3. Entrá a [demo.binance.com](https://demo.binance.com) con tu cuenta de Binance, abrí **API Key Management** y creá una clave con permiso **solo de trading spot**, sin retiros. Pegá la clave y el secreto en `.env` (`BINANCE_API_KEY`, `BINANCE_API_SECRET`). Si tenés clave de Jev, ponela en `TYPESAFE_API_KEY`; si no, el juez es MockJev.
 4. Probá la conexión sin operar, y después la mecánica completa (compra mínima, stop en Binance, venta):
    ```bash
-   python3 -m jevtrader binance --check
+   python3 -m jevtrader binance --symbols top11 --capital 11000 --check
    python3 -m jevtrader binance --roundtrip-test
    ```
 5. Seguí el protocolo de prueba: **[research/PROTOCOLO-DEMO.md](research/PROTOCOLO-DEMO.md)**. Tiene las fases, qué esperar y los umbrales para seguir, frenar o pasar a real, todos decididos antes de empezar. Durante la prueba poné `GATE_SHADOW=true`: la estrategia opera igual y lo que diga Jev queda anotado para medirlo.
@@ -107,9 +107,11 @@ Binance bloquea algunas ubicaciones, entre ellas muchos servidores en la nube (e
    python3 -m jevtrader binance --symbol BTCUSDT --capital 1000 --once
    ```
    O dejalo corriendo y que revise cada vela sola: `python3 -m jevtrader binance --symbol BTCUSDT --capital 1000`.
+   Para varias monedas: `--symbols top11` (las 11 evaluadas) o `--symbols BTCUSDT,ETHUSDT,SOLUSDT`.
 
 Cómo se comporta:
-- `--capital` es la plata que el bot puede usar, en USDT. Arriesga 1 % de ese capital por operación y nunca toca otros saldos de tu cuenta.
+- `--capital` es la plata que el bot puede usar, en USDT. Con varias monedas se reparte en partes iguales, igual que en el backtest, y cada moneda arriesga 1 % de su parte por operación. Los cortes por caída (25 %) y por pérdida diaria (3 %) miran el total. Nunca toca otros saldos de tu cuenta.
+- Una moneda con error (red, Binance) queda anotada en el diario y no frena a las demás. Si dos corridas se pisan, la segunda no arranca.
 - Cada compra deja un **stop-loss guardado en Binance**: si tu PC se apaga, el stop sigue activo. Si no puede poner el stop, vende de inmediato.
 - Si cancelás el stop a mano, el bot lo vuelve a poner en la próxima vela.
 - Estado en `data/binance_demo_state.json` y decisiones en `data/journal.jsonl`.

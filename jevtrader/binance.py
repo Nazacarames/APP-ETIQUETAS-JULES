@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import time
 import urllib.error
 import urllib.parse
@@ -206,36 +207,98 @@ def _base_fee(resp: dict, base: str) -> Decimal:
     return sum((_dec(f["commission"]) for f in resp.get("fills", []) if f.get("commissionAsset") == base), Decimal(0))
 
 
-class BinanceTrader:
-    """Opera UNA posición por símbolo con su stop en el exchange. Estado local en JSON."""
+class StateLocked(RuntimeError):
+    pass
 
-    def __init__(self, api: BinanceSpot, state_path: str | Path, capital: float):
+
+class state_lock:
+    """Evita que dos procesos (p. ej. un cron que se pisa) usen el mismo archivo de estado a la vez.
+
+    Usa un archivo .lock creado de forma exclusiva; funciona igual en Windows y Linux.
+    Un lock de más de 2 horas se considera abandonado y se reemplaza.
+    """
+
+    def __init__(self, state_path: str | Path, stale_s: float = 7200):
+        self.path = Path(str(state_path) + ".lock")
+        self.stale_s = stale_s
+
+    def __enter__(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        if self.path.exists() and time.time() - self.path.stat().st_mtime > self.stale_s:
+            self.path.unlink(missing_ok=True)
+        try:
+            fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            raise StateLocked(f"Otro proceso del bot está usando {self.path.name}. Si no es así, borrá ese archivo.")
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
+        return self
+
+    def __exit__(self, *exc):
+        self.path.unlink(missing_ok=True)
+
+
+class BinanceTrader:
+    """Una posición como máximo por moneda, cada una con su stop guardado en Binance.
+
+    Con varias monedas, el capital se reparte en partes iguales ("una bolsa por moneda"),
+    igual que la cartera de research/evaluate.py: cada moneda arriesga 1 % de SU parte por trade.
+    Los cortes por caída y pérdida diaria miran el total. Estado local en JSON.
+    """
+
+    def __init__(self, api: BinanceSpot, state_path: str | Path, capital: float, symbols: list[str] | None = None):
         self.api = api
         self.path = Path(state_path)
         if self.path.exists():
             self.state = json.loads(self.path.read_text())
+            if "realized" not in self.state:  # estado de la versión de una sola moneda
+                legacy = self.state.pop("realized_pnl", 0.0)
+                self.state["realized"] = {"__anterior__": legacy} if legacy else {}
+                self.state.setdefault("symbols", [])
+            saved = self.state.get("symbols") or []
+            if symbols and saved and sorted(saved) != sorted(symbols):
+                raise ValueError(
+                    f"El estado {self.path.name} es de las monedas {saved} y pediste {symbols}. Cambiar la lista "
+                    "cambia las reglas de la prueba: usá otro archivo (--state-file) o borrá este si querés empezar de cero.")
+            if symbols and not saved:
+                self.state["symbols"] = list(symbols)
         else:
-            self.state = {"capital": capital, "realized_pnl": 0.0, "positions": {}, "last_bar_ts": {},
-                          "peak_equity": capital, "halted": False}
+            self.state = {"capital": capital, "symbols": list(symbols or []), "realized": {}, "positions": {},
+                          "last_bar_ts": {}, "peak_equity": capital, "halted": False}
             self._save()
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(self.state, indent=2))
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(self.state, indent=2))
+        tmp.replace(self.path)  # escritura atómica: un corte de luz no deja el JSON a medias
+
+    def sleeve_capital(self) -> float:
+        return self.state["capital"] / max(1, len(self.state.get("symbols") or []))
 
     def equity(self, symbol: str, price: float) -> float:
-        """Capital asignado al bot + P&L realizado + P&L abierto. No mira el resto de tu cuenta."""
-        eq = self.state["capital"] + self.state["realized_pnl"]
+        """Capital de la bolsa de esta moneda + su P&L realizado + su P&L abierto."""
+        eq = self.sleeve_capital() + self.state["realized"].get(symbol, 0.0)
         pos = self.state["positions"].get(symbol)
         if pos:
             eq += (price - pos["entry"]) * pos["qty"]
         return eq
 
-    def open(self, symbol: str, qty: float, stop: float, reason: str) -> dict:
+    def total_equity(self, prices: dict[str, float]) -> float:
+        """Capital total del bot. No mira el resto de tu cuenta de Binance."""
+        eq = self.state["capital"] + sum(self.state["realized"].values())
+        for sym, pos in self.state["positions"].items():
+            eq += (prices.get(sym, pos["entry"]) - pos["entry"]) * pos["qty"]
+        return eq
+
+    def open(self, symbol: str, qty: float, stop: float, reason: str, ref_price: float | None = None) -> dict:
         r = self.api.rules(symbol)
         q = floor_to(_dec(qty), r.step)
         if q < r.min_qty:
             raise ValueError(f"cantidad {fmt(q)} menor al mínimo {fmt(r.min_qty)} de {symbol}")
+        if ref_price and q * _dec(ref_price) < r.min_notional:
+            raise ValueError(f"orden de {float(q * _dec(ref_price)):.2f} {r.quote} menor al mínimo de {symbol} "
+                             f"({fmt(r.min_notional)}): el capital por moneda es demasiado chico")
         buy = self.api.market_buy(symbol, q)
         filled = _dec(buy["executedQty"]) - _base_fee(buy, r.base)
         held = floor_to(filled, r.step)
@@ -246,12 +309,13 @@ class BinanceTrader:
             # Nunca dejar una posición sin stop: se vende de inmediato.
             sell = self.api.market_sell(symbol, held)
             return {"event": "abortada_sin_stop", "error": str(exc), "buy": buy, "sell": sell}
+        risk_amount = float((entry - _dec(stop)) * held)
         self.state["positions"][symbol] = {"qty": float(held), "entry": float(entry), "stop": stop,
-                                           "stop_order_id": so["orderId"], "reason": reason,
+                                           "risk": risk_amount, "stop_order_id": so["orderId"], "reason": reason,
                                            "opened": datetime.now(timezone.utc).isoformat(timespec="seconds")}
         self._save()
         return {"event": "entrada", "qty": float(held), "entry": float(entry), "stop": stop,
-                "order_id": buy.get("orderId"), "stop_order_id": so["orderId"]}
+                "risk": round(risk_amount, 4), "order_id": buy.get("orderId"), "stop_order_id": so["orderId"]}
 
     def sync_stop(self, symbol: str) -> dict | None:
         """Si el stop se ejecutó en Binance, cierra la posición en el estado local."""
@@ -285,9 +349,12 @@ class BinanceTrader:
     def _book_exit(self, symbol: str, price: float, reason: str) -> dict:
         pos = self.state["positions"].pop(symbol)
         pnl = (price - pos["entry"]) * pos["qty"]
-        self.state["realized_pnl"] += pnl
+        self.state["realized"][symbol] = self.state["realized"].get(symbol, 0.0) + pnl
         self._save()
-        return {"event": "salida", "reason": reason, "exit": price, "pnl": round(pnl, 4)}
+        out = {"event": "salida", "reason": reason, "exit": price, "pnl": round(pnl, 4)}
+        if pos.get("risk"):
+            out["r"] = round(pnl / pos["risk"], 3)  # resultado en R (lo usa el protocolo de Demo Mode)
+        return out
 
 
 def roundtrip_test(api: BinanceSpot, symbol: str, price: float, state_path: str | Path) -> dict:
@@ -303,6 +370,8 @@ def roundtrip_test(api: BinanceSpot, symbol: str, price: float, state_path: str 
     qty = floor_to(notional / _dec(price), r.step) + r.step
     trader = BinanceTrader(api, state_path, capital=float(notional) * 4)
     steps: dict[str, Any] = {}
+    for leftover in list(trader.state["positions"]):  # una prueba anterior que quedó a medias
+        steps.setdefault("limpieza", []).append(trader.close(leftover, "limpieza de prueba anterior"))
     opened = trader.open(symbol, float(qty), stop=price * 0.9, reason="prueba de ida y vuelta")
     steps["compra"] = opened
     if opened["event"] != "entrada":
@@ -318,30 +387,61 @@ def roundtrip_test(api: BinanceSpot, symbol: str, price: float, state_path: str 
     return {"ok": ok, "steps": steps}
 
 
-def step_binance(symbol: str, interval: str, settings: Settings, trader: BinanceTrader, judge: JevJudge,
-                 journal: Journal, strategy: DonchianTrend | None = None, bars=None) -> dict:
-    """Una vela: sincroniza el stop, decide salida o entrada y deja todo en el diario."""
+def step_binance_many(symbols: list[str], interval: str, settings: Settings, trader: BinanceTrader,
+                      judge: JevJudge, journal: Journal, strategy: DonchianTrend | None = None,
+                      bars_by_symbol: dict | None = None, fetch: Callable = fetch_binance) -> list[dict]:
+    """Una vela para cada moneda. Un error en una moneda queda en el diario y no frena a las demás."""
     strategy = strategy or DonchianTrend()
-    risk = RiskManager(settings.risk)
     st = trader.state
     env = "live" if trader.api.live else "demo"
+    results: list[dict] = []
 
-    synced = trader.sync_stop(symbol)
-    if synced:
-        journal.log(synced["event"], symbol=symbol, env=env, **{k: v for k, v in synced.items() if k != "event"})
+    bars_by_symbol = dict(bars_by_symbol or {})
+    for sym in symbols:
+        try:
+            synced = trader.sync_stop(sym)
+            if synced:
+                journal.log(synced["event"], symbol=sym, env=env, **{k: v for k, v in synced.items() if k != "event"})
+            if sym not in bars_by_symbol:
+                bars_by_symbol[sym] = fetch(sym, interval, limit=400)
+        except Exception as exc:  # red, Binance o datos: se anota y se sigue con la próxima moneda
+            results.append(journal.log("error", symbol=sym, env=env, error=repr(exc)))
+            bars_by_symbol.pop(sym, None)
 
-    bars = bars if bars is not None else fetch_binance(symbol, interval, limit=400)
+    prices = {s: b[-1].close for s, b in bars_by_symbol.items()}
+    total = trader.total_equity(prices)
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if st.get("day") != today:  # el límite de pérdida diaria se mide desde acá
+        st["day"] = today
+        st["day_start_equity"] = total
+    st["peak_equity"] = max(st.get("peak_equity", total), total)
+
+    for sym in symbols:
+        if sym not in bars_by_symbol:
+            continue
+        try:
+            out = _step_one(sym, bars_by_symbol[sym], interval, settings, trader, judge, journal, strategy, env, total)
+        except Exception as exc:
+            out = journal.log("error", symbol=sym, env=env, error=repr(exc))
+        results.append(out)
+
+    total = trader.total_equity({s: b[-1].close for s, b in bars_by_symbol.items()})
+    st["peak_equity"] = max(st.get("peak_equity", total), total)
+    trader._save()
+    for out in results:
+        out["equity_total"] = round(total, 2)
+    return results
+
+
+def _step_one(symbol, bars, interval, settings, trader, judge, journal, strategy, env, total_equity) -> dict:
+    st = trader.state
+    risk = RiskManager(settings.risk)
     ind = Indicators(bars)
     i = len(bars) - 1
     b = bars[i]
     if st["last_bar_ts"].get(symbol) == b.ts:
-        return {"event": "sin_cambios", "bar": b.date, **({"sync": synced} if synced else {})}
+        return {"event": "sin_cambios", "symbol": symbol, "bar": b.date}
     base = {"symbol": symbol, "env": env, "bar": b.date, "close": b.close}
-
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    if st.get("day") != today:
-        st["day"] = today
-        st["day_start_equity"] = trader.equity(symbol, b.close)
 
     if symbol in st["positions"]:
         reason = strategy.exit(ind, i)
@@ -355,9 +455,9 @@ def step_binance(symbol: str, interval: str, settings: Settings, trader: Binance
         if not sig:
             out = journal.log("sin_senal", **base)
         else:
-            equity = trader.equity(symbol, b.close)
-            acct = AccountState(equity, max(st.get("peak_equity", equity), equity),
-                                st.get("day_start_equity", equity), open_positions=len(st["positions"]),
+            # Cortes globales (caída y pérdida diaria) sobre el total; una posición por moneda.
+            acct = AccountState(total_equity, max(st.get("peak_equity", total_equity), total_equity),
+                                st.get("day_start_equity", total_equity), open_positions=0,
                                 halted=st.get("halted", False))
             ok, why = risk.can_open(acct)
             st["halted"] = acct.halted
@@ -369,33 +469,40 @@ def step_binance(symbol: str, interval: str, settings: Settings, trader: Binance
                 if not verdict.allow:
                     out = journal.log("vetada", **base, signal=sig.reason, state=state, **verdict.summary())
                 else:
-                    qty = risk.position_size(equity, b.close, sig.stop, verdict.size_mult)
+                    sleeve = trader.equity(symbol, b.close)  # el tamaño sale de la bolsa de esta moneda
+                    qty = risk.position_size(sleeve, b.close, sig.stop, verdict.size_mult)
                     try:
-                        res = trader.open(symbol, qty, sig.stop, sig.reason)
+                        res = trader.open(symbol, qty, sig.stop, sig.reason, ref_price=b.close)
                     except (BinanceError, ValueError) as exc:
                         res = {"event": "error_orden", "error": str(exc)}
                     out = journal.log(res.pop("event"), **base, signal=sig.reason, state=state,
                                       **res, **verdict.summary())
 
-    eq = trader.equity(symbol, b.close)
-    st["peak_equity"] = max(st.get("peak_equity", eq), eq)
     st["last_bar_ts"][symbol] = b.ts
-    trader._save()
-    out["equity"] = round(eq, 2)
+    out["equity_moneda"] = round(trader.equity(symbol, b.close), 2)
     return out
 
 
-def run_forever_binance(symbol: str, interval: str, settings: Settings, trader: BinanceTrader, judge: JevJudge,
-                        journal: Journal) -> None:
-    """Corre step_binance 5 s después del cierre de cada vela. Ctrl+C para frenar (el stop queda en Binance)."""
+def step_binance(symbol: str, interval: str, settings: Settings, trader: BinanceTrader, judge: JevJudge,
+                 journal: Journal, strategy: DonchianTrend | None = None, bars=None) -> dict:
+    """Una vela para una sola moneda (atajo de step_binance_many)."""
+    res = step_binance_many([symbol], interval, settings, trader, judge, journal, strategy,
+                            bars_by_symbol={symbol: bars} if bars is not None else None)
+    return res[0]
+
+
+def run_forever_binance(symbols: list[str], interval: str, settings: Settings, trader: BinanceTrader,
+                        judge: JevJudge, journal: Journal) -> None:
+    """Corre todas las monedas 5 s después del cierre de cada vela. Ctrl+C para frenar (los stops quedan en Binance)."""
     from .data import INTERVAL_MS
     step_ms = INTERVAL_MS[interval]
     while True:
         try:
-            print(json.dumps(step_binance(symbol, interval, settings, trader, judge, journal),
-                             ensure_ascii=False, default=str))
+            with state_lock(trader.path):
+                for out in step_binance_many(symbols, interval, settings, trader, judge, journal):
+                    print(json.dumps(out, ensure_ascii=False, default=str))
         except Exception as exc:  # un error de red no tira el loop; queda en el diario
-            journal.log("error", symbol=symbol, error=repr(exc))
+            journal.log("error", symbol=",".join(symbols), error=repr(exc))
             print("error:", exc)
         now = int(time.time() * 1000)
         wait = (step_ms - now % step_ms) / 1000 + 5

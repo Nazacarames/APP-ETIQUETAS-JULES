@@ -1,13 +1,15 @@
 # Protocolo de prueba en Binance Demo Mode
 
-Escrito el 11 de octubre de 2026, **antes** de arrancar la prueba, siguiendo la skill
+Escrito el 11 de octubre de 2026, **antes** de arrancar la prueba (actualizado el mismo día, también antes de
+arrancar, para usar las 11 monedas desde el inicio), siguiendo la skill
 `paper-trading-and-forward-test-protocol`. Los umbrales salen de `research/significance.py`. No se cambian
 durante la prueba: si cambia una regla del bot, la prueba vuelve a empezar de cero.
 
 ## Reglas congeladas
 
 - **Estrategia:** Donchian 20/10, filtro SMA200, stop 2×ATR, velas diarias.
-- **Riesgo:** 1 % del capital por trade, tope de 50 % por posición, corte por pérdida diaria de 3 %, apagado con caída de 25 %.
+- **Monedas:** las 11 de `research/evaluate.py` (`--symbols top11`). El capital se reparte en 11 bolsas iguales, igual que la cartera del backtest. Cambiar la lista cambia las reglas: el bot no lo permite sobre el mismo archivo de estado.
+- **Riesgo:** 1 % de la bolsa de cada moneda por trade (1 R), tope de 50 % por posición, corte por pérdida diaria de 3 %, apagado con caída de 25 %.
 - **Juez:** **modo sombra** (`GATE_SHADOW=true`). La estrategia opera siempre y lo que Jev aprobaría o vetaría queda en el diario. Con `TYPESAFE_API_KEY` el juez es Jev real; sin clave es MockJev, y entonces la parte "Jev" de esta prueba no mide nada.
 - **Versión del código:** el commit de `main` del día en que arranca la fase 1. Anotalo en `data/journal.jsonl` o en el primer reporte.
 
@@ -15,26 +17,27 @@ durante la prueba: si cambia una regla del bot, la prueba vuelve a empezar de ce
 
 Esto no es pesimismo, es el perfil normal de esta estrategia.
 
-- Pierde en el 59 % de los trades. El trade mediano es −0,57 R (1 R = el riesgo del trade, 1 % del capital).
+- Pierde en el 59 % de los trades. El trade mediano es −0,57 R (1 R = el riesgo del trade, 1 % de la bolsa de esa moneda).
 - La ganancia viene de pocos trades enormes: los 5 mejores de la historia explican el 47 % del total. Hubo años planos o negativos (2022: −9 R; 2025: −7 R).
 - Con 10 trades hay un 28 % de probabilidad de ir perdiendo aunque todo funcione como en el backtest. **No se juzga antes de los 30 trades.**
-- **Frecuencia:** BTC da unas 4 señales por año y las 11 monedas juntas, unas 40. Por eso la fase 1 valida la mecánica con pruebas de ida y vuelta, y la fase 2 necesita varias monedas.
+- **Frecuencia:** BTC solo da unas 4 señales por año; las 11 monedas juntas, unas 40 (≈ 3 por mes). Por eso se usan las 11 desde el día 1, y la fase 1 igual se apoya en pruebas de ida y vuelta.
 
 ## Fase 0: preparación (día 1)
 
 1. En `.env`: `BINANCE_ENV=demo`, `LIVE_TRADING=false`, `GATE_SHADOW=true` y las claves de Demo Mode, con permiso solo de trading spot y sin retiros.
-2. `python3 -m jevtrader binance --check` → conexión OK y permiso de trading "sí".
+2. `python3 -m jevtrader binance --symbols top11 --capital 11000 --check` → conexión OK, permiso de trading "sí" y ninguna moneda con aviso de "capital por moneda chico". En Demo la plata es ficticia: 11.000 USDT dan 1.000 por moneda.
 3. `python3 -m jevtrader binance --roundtrip-test` → "OK: compra, stop en Binance, cancelación y venta funcionan."
 
 Si algo de esto falla, no se avanza.
 
-## Fase 1: ejecución (4 semanas, BTCUSDT)
+## Fase 1: ejecución (primeras 4 semanas, 11 monedas)
 
 Correr todos los días, 5 minutos después del cierre de la vela diaria, a las 00:05 UTC (21:05 en Argentina):
 ```
-python3 -m jevtrader binance --symbol BTCUSDT --capital 1000 --once
+python3 -m jevtrader binance --symbols top11 --capital 11000 --once
 ```
-En Windows: Programador de tareas, acción `py -m jevtrader binance --symbol BTCUSDT --capital 1000 --once`, carpeta del repo.
+En Windows: Programador de tareas, acción `py -m jevtrader binance --symbols top11 --capital 11000 --once`, carpeta del repo.
+Si dos corridas se pisan, la segunda se niega a arrancar: el estado tiene un candado.
 
 Además, una vez por semana: `python3 -m jevtrader binance --roundtrip-test`.
 
@@ -48,9 +51,9 @@ Además, una vez por semana: `python3 -m jevtrader binance --roundtrip-test`.
 | `error_orden` sin explicación | 0 |
 | Deslizamiento de entrada vs. cierre de la vela de señal (si hubo entradas) | mediana ≤ 0,30 % |
 
-## Fase 2: ventaja (desde que el bot opere varias monedas, mínimo 30 trades)
+## Fase 2: ventaja (la misma corrida, hasta llegar a 30 trades)
 
-Requiere sumar soporte multi-moneda al loop de Binance, que hoy guarda el estado en un solo archivo. Con las 11 monedas son unos 9 meses para llegar a 30 trades. Los umbrales vienen del Monte Carlo por bloques de 5 trades, la versión más pesimista:
+Sigue la misma corrida de la fase 1, sin reiniciar nada. Con las 11 monedas, llegar a 30 trades cerrados lleva unos 9 meses. Cada salida queda en el diario con su resultado en R (campo `r`). Los umbrales vienen del Monte Carlo por bloques de 5 trades, la versión más pesimista:
 
 | Situación | Umbral | Acción |
 |---|---|---|

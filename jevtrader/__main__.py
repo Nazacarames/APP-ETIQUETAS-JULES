@@ -116,7 +116,9 @@ def cmd_paper(args, settings):
 
 def cmd_binance(args, settings):
     import os
-    from .binance import BinanceError, BinanceSpot, BinanceTrader, run_forever_binance, step_binance
+    from .binance import (BinanceError, BinanceSpot, BinanceTrader, StateLocked, run_forever_binance,
+                          state_lock, step_binance_many)
+    symbols = parse_symbols(args.symbols) if args.symbols else [args.symbol.upper()]
     real = os.environ.get("BINANCE_ENV", "demo").strip().lower() == "live"
     if real and not settings.live_trading:
         sys.exit("BINANCE_ENV=live requiere también LIVE_TRADING=true en .env. No se envió nada.")
@@ -130,38 +132,70 @@ def cmd_binance(args, settings):
     if args.check:
         try:
             api.ping()
-            rules = api.rules(args.symbol)
             bal = api.balances()
             can = api.can_trade()
+            rules = {sym: api.rules(sym) for sym in symbols}
         except BinanceError as exc:
             hint = " (Binance bloquea esta ubicación: correlo desde tu PC)" if exc.status == 451 else ""
             sys.exit(f"Falló la conexión: {exc}{hint}")
         print(f"conexión OK · permiso de trading: {'sí' if can else 'NO'}")
-        print(f"{args.symbol}: base {rules.base}, cotiza en {rules.quote}, paso {rules.step}, "
-              f"mínimo por orden {rules.min_notional} {rules.quote}")
-        for asset in (rules.base, rules.quote):
+        sleeve = args.capital / len(symbols)
+        # Orden típica: 1 % de la bolsa con un stop a ~8 % (2 ATR en cripto diario), con tope de 50 %.
+        typical = min(sleeve * settings.risk.risk_per_trade / 0.08, sleeve * settings.risk.max_position_pct)
+        print(f"capital {args.capital:.2f} en {len(symbols)} moneda(s) → {sleeve:.2f} por moneda; "
+              f"orden típica ≈ {typical:.2f}")
+        for sym, r in rules.items():
+            warn = "  ⚠ capital por moneda chico para el mínimo" if typical < float(r.min_notional) * 1.5 else ""
+            print(f"  {sym}: mínimo por orden {r.min_notional} {r.quote}, paso {r.step}{warn}")
+        quotes = {r.quote for r in rules.values()}
+        for asset in sorted(quotes) + sorted({r.base for r in rules.values()}):
             free, locked = bal.get(asset, (0, 0))
-            print(f"  {asset}: libre {free} · bloqueado {locked}")
+            print(f"  saldo {asset}: libre {free} · bloqueado {locked}")
         return
     if args.roundtrip_test:
         from .binance import roundtrip_test
         if real:
             sys.exit("La prueba de ida y vuelta solo corre en Demo Mode.")
-        res = roundtrip_test(api, args.symbol, api.price(args.symbol), settings.data_dir / "binance_roundtrip_state.json")
-        Journal(settings.data_dir / "journal.jsonl").log("prueba_ida_y_vuelta", symbol=args.symbol, **res)
+        sym = symbols[0]
+        res = roundtrip_test(api, sym, api.price(sym), settings.data_dir / "binance_roundtrip_state.json")
+        Journal(settings.data_dir / "journal.jsonl").log("prueba_ida_y_vuelta", symbol=sym, **res)
         print(json.dumps(res, indent=2, ensure_ascii=False, default=str))
         print("OK: compra, stop en Binance, cancelación y venta funcionan." if res["ok"]
               else "FALLÓ: revisá los pasos de arriba antes de seguir.")
         return
-    state_file = settings.data_dir / f"binance_{'live' if real else 'demo'}_state.json"
-    trader = BinanceTrader(api, state_file, args.capital)
+    state_file = Path(args.state_file) if args.state_file else \
+        settings.data_dir / f"binance_{'live' if real else 'demo'}_state.json"
+    try:
+        trader = BinanceTrader(api, state_file, args.capital, symbols)
+    except ValueError as exc:
+        sys.exit(str(exc))
     judge = JevJudge(_client(settings, args), settings.gate)
     journal = Journal(settings.data_dir / "journal.jsonl")
+    print(f"monedas: {', '.join(symbols)} · capital {trader.state['capital']:.2f} "
+          f"({trader.sleeve_capital():.2f} por moneda) · estado {state_file}", file=sys.stderr)
     if args.once:
-        print(json.dumps(step_binance(args.symbol, args.interval, settings, trader, judge, journal),
-                         indent=2, ensure_ascii=False, default=str))
+        try:
+            with state_lock(state_file):
+                out = step_binance_many(symbols, args.interval, settings, trader, judge, journal)
+        except StateLocked as exc:
+            sys.exit(str(exc))
+        print(json.dumps(out, indent=2, ensure_ascii=False, default=str))
     else:
-        run_forever_binance(args.symbol, args.interval, settings, trader, judge, journal)
+        run_forever_binance(symbols, args.interval, settings, trader, judge, journal)
+
+
+TOP11 = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "LTCUSDT",
+         "LINKUSDT", "AVAXUSDT", "TRXUSDT"]
+
+
+def parse_symbols(text: str) -> list[str]:
+    """"top11" = las 11 monedas evaluadas en research/; si no, lista separada por comas."""
+    if text.strip().lower() == "top11":
+        return list(TOP11)
+    out = [t.strip().upper() for t in text.split(",") if t.strip()]
+    if len(set(out)) != len(out):
+        raise SystemExit("Hay monedas repetidas en --symbols.")
+    return out
 
 
 def cmd_news(args, settings):
@@ -234,9 +268,11 @@ def main(argv: list[str] | None = None) -> None:
 
     p = sub.add_parser("binance", help="Binance Spot (Demo Mode por defecto)")
     p.add_argument("--symbol", default="BTCUSDT")
+    p.add_argument("--symbols", help='varias monedas: "top11" o lista separada por comas (BTCUSDT,ETHUSDT)')
+    p.add_argument("--state-file", help="archivo de estado (por defecto data/binance_demo_state.json)")
     p.add_argument("--interval", default="1d")
     p.add_argument("--capital", type=float, default=1_000.0,
-                   help="capital que el bot puede usar, en la moneda de cotización (p. ej. USDT)")
+                   help="capital total que el bot puede usar (USDT); con varias monedas se reparte en partes iguales")
     p.add_argument("--check", action="store_true", help="probar claves, permisos y saldos sin operar")
     p.add_argument("--roundtrip-test", action="store_true",
                    help="solo Demo: compra el mínimo, verifica el stop en Binance y vende")

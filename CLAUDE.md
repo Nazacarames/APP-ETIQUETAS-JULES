@@ -43,6 +43,7 @@ python3 -m jevtrader ping                                        # prueba la API
 - `jevtrader/judge.py` — política sobre las respuestas (umbrales en `config.GateConfig`), fail-closed.
 - `jevtrader/strategy.py` — Donchian 20/10 + SMA200 + stop 2×ATR.
 - `jevtrader/binance.py` — Binance Spot (Demo Mode por defecto), stop en el exchange, solo opera lo que compró.
+  Varias monedas (`--symbols top11`): capital en bolsas iguales, cortes globales, candado de estado, `r` en cada salida.
   Binance responde 451 desde servidores en la nube: las pruebas reales las corre el usuario desde su PC.
 - `jevtrader/risk.py`, `broker.py`, `live.py`, `backtest.py`, `report.py`, `news.py`, `journal.py`.
 
