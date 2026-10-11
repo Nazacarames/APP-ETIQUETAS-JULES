@@ -6,3 +6,4 @@ data/journal.jsonl
 data/paper_account.json
 data/binance_*_state.json
 reports/
+data/*_4h.csv

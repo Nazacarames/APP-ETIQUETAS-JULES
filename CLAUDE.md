@@ -16,6 +16,8 @@ Nunca estás en el camino caliente de una orden.
 4. **Sin lookahead.** Señal con el cierre de la vela i, ejecución en la apertura de i+1. Si tocás `features.py` o
    `backtest.py`, `tests/test_features.py::TestNoLookahead` y `tests/test_backtest.py` tienen que seguir pasando.
 5. **Holdout sagrado.** Ajustá parámetros mirando solo el tramo A. El tramo B se reporta, no se optimiza.
+   El tramo B de las 11 monedas de `research/evaluate.py` ya se miró (ver `research/RESULTADOS-2026-10.md`):
+   cualquier cambio nuevo se valida con datos posteriores al 2026-10-10 (Demo Mode o papel hacia adelante).
 6. **Decí con qué juez corriste.** Si el backtest usó MockJev, los números no miden a Jev. Decilo siempre.
 7. **El riesgo manda.** `risk.py` tiene la última palabra (1 % por trade, kill switch por drawdown y pérdida diaria).
    No aflojes límites sin pedido explícito del usuario.
