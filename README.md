@@ -81,6 +81,12 @@ Son datos de un solo día y de pocos traders: sirven para ver cómo leer el info
 en Binance, simulando con 100 USD. No lo anticipan: esos mercados se resuelven con el precio de Binance y lo siguen.
 Detalle y simulaciones de la estrategia anterior con 100 USD en `research/RESULTADOS-polymarket-binance.md`.
 
+## Apuestas deportivas
+`research/apuestas_futbol.py` (cuotas históricas de football-data.co.uk) y `research/polymarket_deportes.py`
+(calibración de Polymarket en deportes) responden si hay apuestas de alta tasa de acierto que dejen ganancia,
+simulando con 100 USD. Resumen en `research/RESULTADOS-apuestas-deportivas.md`: acertar seguido es fácil, ganar plata
+no; la única ventaja aparece buscando la mejor cuota entre decenas de casas.
+
 ## Limitaciones
 - El costo de cada posición sale del precio promedio que informa la API. En mercados de "riesgo negativo" (conversiones entre resultados) puede no coincidir con lo que el trader pagó realmente, así que el ROI es aproximado.
 - La copiabilidad usa solo mercados ya resueltos dentro de la ventana. Eso favorece mercados cortos (deportes, cripto diario).

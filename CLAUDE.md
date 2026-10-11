@@ -46,6 +46,9 @@ python3 -m polylens ping                                 # prueba la API de Jev
   `resolved_positions` las pide por fecha y recorta todo a una misma ventana. `prices_history` fecha cada precio
   al final de su balde y descarta el "punto terminal" de la API, que trae el resultado final con fecha anterior.
 - `research/polymarket_btc.py` — ¿Polymarket anticipa a BTC en Binance? (no; ver `research/RESULTADOS-polymarket-binance.md`).
+- `research/apuestas_futbol.py`, `research/polymarket_deportes.py` — apuestas deportivas con 100 USD (favoritos,
+  value betting, surebets, Liga Argentina) y calibración de Polymarket en deportes; ver
+  `research/RESULTADOS-apuestas-deportivas.md`. Oddspedia bloquea el acceso automático: no saltear su protección.
 - `polylens/profiles.py` — métricas por trader, alertas y ranking con umbrales de azar y Bonferroni.
 - `polylens/scan.py` — ranking de Polymarket → perfiles → orden por consistencia.
 - `polylens/flows.py` — posiciones abiertas agregadas por mercado (coincidencias y disputas).
