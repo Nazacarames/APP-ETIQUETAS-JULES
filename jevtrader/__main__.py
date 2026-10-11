@@ -3,6 +3,7 @@
     fetch     descarga velas de Binance a CSV
     backtest  compara comprar-y-mantener vs. estrategia base vs. estrategia + Jev
     paper     opera en papel sobre datos reales (una vela por corrida con --once)
+    binance   opera en Binance Spot (Demo Mode por defecto; --check prueba la conexión)
     news      clasifica titulares con Jev
     ping      llamada de prueba a la API de Jev
 """
@@ -113,6 +114,46 @@ def cmd_paper(args, settings):
         run_forever(args.symbol, args.interval, settings, broker, judge, journal)
 
 
+def cmd_binance(args, settings):
+    import os
+    from .binance import BinanceError, BinanceSpot, BinanceTrader, run_forever_binance, step_binance
+    real = os.environ.get("BINANCE_ENV", "demo").strip().lower() == "live"
+    if real and not settings.live_trading:
+        sys.exit("BINANCE_ENV=live requiere también LIVE_TRADING=true en .env. No se envió nada.")
+    try:
+        api = BinanceSpot(os.environ.get("BINANCE_API_KEY", ""), os.environ.get("BINANCE_API_SECRET", ""),
+                          live=real, live_trading_enabled=settings.live_trading)
+    except ValueError as exc:
+        sys.exit(f"{exc}. Crealas en demo.binance.com > API Key Management.")
+    env = "REAL (dinero de verdad)" if real else "Demo Mode"
+    print(f"Binance {env}: {api.base_url}", file=sys.stderr)
+    if args.check:
+        try:
+            api.ping()
+            rules = api.rules(args.symbol)
+            bal = api.balances()
+            can = api.can_trade()
+        except BinanceError as exc:
+            hint = " (Binance bloquea esta ubicación: correlo desde tu PC)" if exc.status == 451 else ""
+            sys.exit(f"Falló la conexión: {exc}{hint}")
+        print(f"conexión OK · permiso de trading: {'sí' if can else 'NO'}")
+        print(f"{args.symbol}: base {rules.base}, cotiza en {rules.quote}, paso {rules.step}, "
+              f"mínimo por orden {rules.min_notional} {rules.quote}")
+        for asset in (rules.base, rules.quote):
+            free, locked = bal.get(asset, (0, 0))
+            print(f"  {asset}: libre {free} · bloqueado {locked}")
+        return
+    state_file = settings.data_dir / f"binance_{'live' if real else 'demo'}_state.json"
+    trader = BinanceTrader(api, state_file, args.capital)
+    judge = JevJudge(_client(settings, args), settings.gate)
+    journal = Journal(settings.data_dir / "journal.jsonl")
+    if args.once:
+        print(json.dumps(step_binance(args.symbol, args.interval, settings, trader, judge, journal),
+                         indent=2, ensure_ascii=False, default=str))
+    else:
+        run_forever_binance(args.symbol, args.interval, settings, trader, judge, journal)
+
+
 def cmd_news(args, settings):
     from .news import fetch_rss, relevant_alerts, triage
     if args.file:
@@ -180,6 +221,16 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--once", action="store_true", help="procesar la última vela y salir (para cron)")
     p.add_argument("--mock", action="store_true")
     p.set_defaults(func=cmd_paper)
+
+    p = sub.add_parser("binance", help="Binance Spot (Demo Mode por defecto)")
+    p.add_argument("--symbol", default="BTCUSDT")
+    p.add_argument("--interval", default="1d")
+    p.add_argument("--capital", type=float, default=1_000.0,
+                   help="capital que el bot puede usar, en la moneda de cotización (p. ej. USDT)")
+    p.add_argument("--check", action="store_true", help="probar claves, permisos y saldos sin operar")
+    p.add_argument("--once", action="store_true", help="procesar la última vela y salir")
+    p.add_argument("--mock", action="store_true", help="usar MockJev como juez")
+    p.set_defaults(func=cmd_binance)
 
     p = sub.add_parser("news")
     p.add_argument("--asset", required=True, help='p. ej. "Bitcoin (BTC)" o "Apple Inc. (AAPL)"')

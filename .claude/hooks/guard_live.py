@@ -10,7 +10,9 @@ import sys
 
 BLOCKS = [
     (r"LIVE_TRADING\s*=\s*['\"]?(1|true|yes|on|si)", "Activar LIVE_TRADING es una decisión humana, no del agente."),
+    (r"BINANCE_ENV\s*=\s*['\"]?live", "Pasar Binance a dinero real es una decisión humana, no del agente."),
     (r"api\.alpaca\.markets", "El agente no puede apuntar a la API de dinero real de Alpaca."),
+    (r"(?<![\w.-])api\.binance\.com", "El agente no puede apuntar a la API de dinero real de Binance."),
     (r"live\s*=\s*True", "El agente no puede instanciar brokers en modo real."),
     (r"(^|[\s/'\"=<])\.env(\s|$|['\"])", "El agente no lee ni modifica .env (contiene API keys)."),
 ]

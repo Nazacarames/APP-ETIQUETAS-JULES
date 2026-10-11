@@ -64,7 +64,7 @@ Según TypeSafe, la latencia es de 70–500 ms y el costo de US$ 0,042 por mill�
 
 ```bash
 # Requiere Python 3.10+. No hay dependencias externas.
-python3 -m unittest discover -s tests -t .           # 40 tests
+python3 -m unittest discover -s tests -t .           # 53 tests
 
 python3 -m jevtrader backtest --synthetic --mock      # sin red, sin API key
 python3 -m jevtrader fetch --symbol BTCUSDT           # baja velas diarias de Binance a data/
@@ -83,6 +83,35 @@ Para correrlo una vez por día en papel, con cron:
 ```cron
 5 0 * * *  cd /ruta/jev-trader && python3 -m jevtrader paper --symbol BTCUSDT --once >> data/cron.log 2>&1
 ```
+
+## Correrlo en tu PC con Binance (Demo Mode)
+
+Binance bloquea algunas ubicaciones, entre ellas muchos servidores en la nube (error 451). Desde una PC en Argentina funciona.
+
+1. Instalá Python 3.10 o más nuevo y Git. En Windows, marcá "Add Python to PATH" al instalar y usá `py` en vez de `python3`.
+2. Bajá el repo y prepará la configuración:
+   ```bash
+   git clone https://github.com/Nazacarames/APP-ETIQUETAS-JULES.git jev-trader
+   cd jev-trader
+   cp .env.example .env          # en Windows: copy .env.example .env
+   ```
+3. Entrá a [demo.binance.com](https://demo.binance.com) con tu cuenta de Binance, abrí **API Key Management** y creá una clave con permiso **solo de trading spot**, sin retiros. Pegá la clave y el secreto en `.env` (`BINANCE_API_KEY`, `BINANCE_API_SECRET`). Si tenés clave de Jev, ponela en `TYPESAFE_API_KEY`; si no, el juez es MockJev.
+4. Probá la conexión sin operar:
+   ```bash
+   python3 -m jevtrader binance --check
+   ```
+5. Procesá la última vela cerrada (compra solo si hay señal y Jev la aprueba):
+   ```bash
+   python3 -m jevtrader binance --symbol BTCUSDT --capital 1000 --once
+   ```
+   O dejalo corriendo y que revise cada vela sola: `python3 -m jevtrader binance --symbol BTCUSDT --capital 1000`.
+
+Cómo se comporta:
+- `--capital` es la plata que el bot puede usar, en USDT. Arriesga 1 % de ese capital por operación y nunca toca otros saldos de tu cuenta.
+- Cada compra deja un **stop-loss guardado en Binance**: si tu PC se apaga, el stop sigue activo. Si no puede poner el stop, vende de inmediato.
+- Si cancelás el stop a mano, el bot lo vuelve a poner en la próxima vela.
+- Estado en `data/binance_demo_state.json` y decisiones en `data/journal.jsonl`.
+- Pasar a dinero real requiere dos cambios que hacés vos en `.env`: `BINANCE_ENV=live` y `LIVE_TRADING=true`. Antes, mirá la checklist de más abajo.
 
 ## Cómo se usa con Claude Code
 
@@ -131,8 +160,8 @@ Cómo leerlo:
 1. Al menos 3 meses en papel con Jev real y `/review-journal` semanal.
 2. Que el holdout muestre una mejora de Jev frente a la base en varios activos, con más de 30 trades.
 3. Que las señales vetadas rindan peor que las tomadas.
-4. Usar un broker con stops del lado del servidor (no depender de que el bot esté vivo) y empezar con un monto que puedas perder entero.
-5. Recién ahí: `LIVE_TRADING=true` y `AlpacaBroker(live=True, live_trading_enabled=True)`. Ese paso lo das vos, no el agente.
+4. Varias semanas en Binance Demo Mode sin errores de órdenes en el diario. El conector ya deja el stop guardado en Binance.
+5. Recién ahí, en tu `.env`: `BINANCE_ENV=live` y `LIVE_TRADING=true`, con un `--capital` que puedas perder entero. Ese paso lo das vos, no el agente.
 
 ## Estructura
 
@@ -148,16 +177,19 @@ jevtrader/
   risk.py        tamaño por riesgo, kill switches
   backtest.py    backtester sin lookahead, métricas, análisis de vetos
   broker.py      PaperBroker, AlpacaBroker (paper por defecto; no probado contra la API real)
+  binance.py     Binance Spot: Demo Mode por defecto, stop guardado en el exchange
   live.py        loop en papel (idempotente, una vela por corrida)
   news.py        triage de titulares
   report.py      reporte HTML + JSON
-tests/           40 tests (unittest)
+tests/           53 tests (unittest), incluido un exchange Binance simulado
 .claude/         settings, hook guard_live.py y 3 skills
 ```
 
 ## Limitaciones conocidas
 
 - `AlpacaBroker` está escrito según la API v2 de Alpaca, pero no se probó contra una cuenta real.
+- El conector de Binance está probado contra un exchange simulado (firma, redondeos, stop, cierre). Todavía no se corrió contra Demo Mode porque Binance bloquea el servidor donde se escribió (error 451). La primera prueba real es tu `--check` desde la PC.
+- Si el stop de Binance se ejecuta solo en parte, el bot lo ve recién cuando termina de ejecutarse.
 - El loop en papel revisa el stop solo en la última vela cerrada. Si se saltea corridas, puede perder un stop intermedio.
 - Long-only, un activo por proceso, velas diarias por defecto.
 - Jev está en early access: precios, límites y modelos (`jev-latest` = `jev-1.13.0` hoy) pueden cambiar.

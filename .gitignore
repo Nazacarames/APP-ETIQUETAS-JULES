@@ -4,4 +4,5 @@ __pycache__/
 data/jev_cache.jsonl
 data/journal.jsonl
 data/paper_account.json
+data/binance_*_state.json
 reports/

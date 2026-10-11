@@ -26,6 +26,7 @@ python3 -m unittest discover -s tests -t .                      # tests (correr 
 python3 -m jevtrader fetch --symbol BTCUSDT                      # velas diarias de Binance -> data/
 python3 -m jevtrader backtest --csv data/BTCUSDT_1d.csv --report reports/BTC.html
 python3 -m jevtrader paper --symbol BTCUSDT --once               # una vela en papel (para cron)
+python3 -m jevtrader binance --check                             # Binance Demo Mode: conexión y saldos
 python3 -m jevtrader news --asset "Bitcoin (BTC)" --rss <url>    # triage de titulares
 python3 -m jevtrader ping                                        # prueba la API de Jev
 ```
@@ -36,6 +37,8 @@ python3 -m jevtrader ping                                        # prueba la API
 - `jevtrader/jev_client.py` — cliente HTTP de `/v1/systemone`, cache JSONL, self-consistency, MockJev.
 - `jevtrader/judge.py` — política sobre las respuestas (umbrales en `config.GateConfig`), fail-closed.
 - `jevtrader/strategy.py` — Donchian 20/10 + SMA200 + stop 2×ATR.
+- `jevtrader/binance.py` — Binance Spot (Demo Mode por defecto), stop en el exchange, solo opera lo que compró.
+  Binance responde 451 desde servidores en la nube: las pruebas reales las corre el usuario desde su PC.
 - `jevtrader/risk.py`, `broker.py`, `live.py`, `backtest.py`, `report.py`, `news.py`, `journal.py`.
 
 ## Skills del proyecto
