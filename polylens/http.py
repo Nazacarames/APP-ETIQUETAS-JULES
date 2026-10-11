@@ -27,8 +27,11 @@ class HttpError(RuntimeError):
         super().__init__(f"HTTP {status} en {url}: {str(body)[:200]}")
 
 
-def urllib_transport(url: str, timeout: float) -> tuple[int, Any, dict]:
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+def urllib_transport(url: str, timeout: float, headers: dict | None = None) -> tuple[int, Any, dict]:
+    """GET que devuelve (estado, JSON, encabezados). `headers` sirve para claves que no deben ir en la URL
+    (así tampoco quedan en la caché, que se indexa por URL)."""
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json",
+                                               **(headers or {})})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read()
@@ -52,8 +55,10 @@ def build_url(base: str, params: dict | None) -> str:
 class Http:
     def __init__(self, cache_dir: str | Path | None = None, ttl_s: float = 6 * 3600, min_interval_s: float = 0.25,
                  transport: Transport = urllib_transport, sleep: Callable[[float], None] = time.sleep,
-                 clock: Callable[[], float] = time.time, max_retries: int = 4, timeout_s: float = 30.0):
+                 clock: Callable[[], float] = time.time, max_retries: int = 4, timeout_s: float = 30.0,
+                 cacheable: Callable[[Any], bool] = lambda body: True):
         self.cache_dir = Path(cache_dir) if cache_dir else None
+        self.cacheable = cacheable  # p. ej. no guardar respuestas 200 que en realidad traen un error
         self.ttl_s = ttl_s
         self.min_interval_s = min_interval_s
         self.transport = transport
@@ -114,7 +119,8 @@ class Http:
                 status, body, headers = 0, str(exc), {}
             self.requests += 1
             if status == 200:
-                self._cache_put(url, body)
+                if self.cacheable(body):
+                    self._cache_put(url, body)
                 return body
             last = HttpError(status, body, url)
             if status not in RETRYABLE and status != 0:
