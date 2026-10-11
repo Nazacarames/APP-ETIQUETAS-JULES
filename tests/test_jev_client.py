@@ -2,10 +2,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from jevtrader.config import GateConfig, JevConfig
-from jevtrader.jev_client import (AnswerCache, JevClient, JevError, MockJev, choice, choice_confidence, noul,
-                                  parse_response, score, score_confidence)
-from jevtrader.judge import JevJudge
+from polylens.config import JevConfig
+from polylens.jev_client import (AnswerCache, JevClient, JevError, MockJev, choice, choice_confidence, make_client,
+                                 noul, parse_response, score, score_confidence)
 
 # Respuesta de ejemplo de docs.typesafe.ai/introduction/quickstart
 DOCS_RESPONSE = {
@@ -22,14 +21,11 @@ DOCS_RESPONSE = {
 }
 
 
-def entry_body(regime="trending_up", regime_p=0.9, setup=(0.0, 0.1, 0.9), overext=0.1):
-    others = {k: (1 - regime_p) / 3 for k in ("disorderly", "range_bound", "trending_down", "trending_up") if k != regime}
-    probs = {regime: regime_p, **others}
+def body(cat_p=0.9, rel=0.2):
     return {"model": "jev-1.13.0", "answers": {
-        "regime": {"type": "choice", "choice": regime, "probabilities": probs},
-        "setup_quality": {"type": "score", "score": sum(k * p for k, p in enumerate(setup)),
-                          "probabilities": {str(k): p for k, p in enumerate(setup)}},
-        "overextended": {"type": "noul", "noul": overext},
+        "category": {"type": "choice", "choice": "politics",
+                     "probabilities": {"other": 1 - cat_p, "politics": cat_p}},
+        "relevant": {"type": "noul", "noul": rel},
     }}
 
 
@@ -117,74 +113,34 @@ class TestClient(unittest.TestCase):
             self.assertEqual(t2.calls, [])
 
     def test_samples_are_averaged(self):
-        a = entry_body(regime_p=0.9, setup=(0.0, 0.0, 1.0), overext=0.2)
-        b = entry_body(regime_p=0.5, setup=(0.0, 1.0, 0.0), overext=0.4)
-        t = FakeTransport([(200, a), (200, b)])
+        t = FakeTransport([(200, body(0.9, 0.2)), (200, body(0.5, 0.4))])
         r = JevClient(cfg(samples=2), transport=t).decide("s", {"q": noul("x")})
-        self.assertAlmostEqual(r["regime"].probabilities["trending_up"], 0.7)
-        self.assertAlmostEqual(r["setup_quality"].value, 1.5)
-        self.assertAlmostEqual(r["overextended"].p, 0.3)
+        self.assertAlmostEqual(r["category"].probabilities["politics"], 0.7)
+        self.assertAlmostEqual(r["relevant"].p, 0.3)
 
-
-class TestJudge(unittest.TestCase):
-    def judge(self, responses, **gate):
-        t = FakeTransport(responses)
-        return JevJudge(JevClient(cfg(max_retries=0), transport=t, sleep=lambda s: None), GateConfig(**gate))
-
-    def test_fail_closed(self):
-        v = self.judge([(503, {})]).review_entry({"x": "y"})
-        self.assertFalse(v.allow)
-        self.assertEqual(v.size_mult, 0.0)
-
-    def test_fail_open_is_opt_in(self):
-        v = self.judge([(503, {})], fail_closed=False).review_entry({"x": "y"})
-        self.assertTrue(v.allow)
-        self.assertEqual(v.size_mult, 0.5)
-
-    def test_allows_confident_uptrend_full_size(self):
-        v = self.judge([(200, entry_body())]).review_entry({"x": "y"})
-        self.assertTrue(v.allow, v.reasons)
-        self.assertEqual(v.size_mult, 1.0)
-
-    def test_vetoes_wrong_regime(self):
-        v = self.judge([(200, entry_body(regime="range_bound"))]).review_entry({"x": "y"})
-        self.assertFalse(v.allow)
-
-    def test_vetoes_weak_setup(self):
-        v = self.judge([(200, entry_body(setup=(0.7, 0.3, 0.0)))]).review_entry({"x": "y"})
-        self.assertFalse(v.allow)
-
-    def test_halves_when_overextended(self):
-        v = self.judge([(200, entry_body(overext=0.9))]).review_entry({"x": "y"})
-        self.assertTrue(v.allow)
-        self.assertEqual(v.size_mult, 0.5)
-
-    def test_shadow_mode_records_veto_but_trades(self):
-        v = self.judge([(200, entry_body(regime="range_bound"))], shadow=True).review_entry({"x": "y"})
-        self.assertTrue(v.allow)
-        self.assertEqual(v.size_mult, 1.0)
-        self.assertFalse(v.summary()["shadow"]["allow"])
-        self.assertIn("vetaría", v.reasons[0])
-
-    def test_shadow_mode_survives_api_errors(self):
-        v = self.judge([(503, {})], shadow=True).review_entry({"x": "y"})
-        self.assertTrue(v.allow)
-        self.assertFalse(v.shadow["allow"])
-
-    def test_news_question_added_only_with_headlines(self):
-        t = FakeTransport([(200, {**entry_body(), "answers": {**entry_body()["answers"],
-                                                              "news_risk": {"type": "noul", "noul": 0.9}}})])
-        j = JevJudge(JevClient(cfg(), transport=t), GateConfig())
-        v = j.review_entry({"x": "y"}, asset="BTC", headlines=["Exchange hacked"])
-        self.assertIn("news_risk", t.calls[0][2]["questions"])
-        self.assertFalse(v.allow)
+    def test_make_client_without_key_is_mock(self):
+        self.assertIsInstance(make_client(JevConfig()), MockJev)
+        self.assertIsInstance(make_client(JevConfig(api_key="k", force_mock=True)), MockJev)
+        self.assertIsInstance(make_client(cfg()), JevClient)
 
 
 class TestMock(unittest.TestCase):
-    def test_mock_has_same_shape(self):
-        from jevtrader.questions import entry_review
-        r = MockJev().decide({"context": "x"}, entry_review())
-        self.assertEqual(set(r.answers), {"regime", "setup_quality", "overextended"})
+    def test_category_by_keywords(self):
+        q = {"category": choice("Which category?", {"other": "none", "sports": "s", "crypto": "c"})}
+        self.assertEqual(MockJev().decide("Will Bitcoin reach 150k?", q)["category"].choice, "crypto")
+        self.assertEqual(MockJev().decide("Lakers vs. Celtics", q)["category"].choice, "sports")
+        self.assertEqual(MockJev().decide("Something unrelated", q)["category"].choice, "other")
+
+    def test_relevance_by_word_overlap(self):
+        q = {"relevant": noul("Is it relevant?")}
+        hi = MockJev().decide({"headline": "Iran blockade tightens", "market": "Iran blockade ends?"}, q)
+        lo = MockJev().decide({"headline": "Rain in Paris", "market": "Iran blockade ends?"}, q)
+        self.assertGreater(hi["relevant"].p, lo["relevant"].p)
+
+    def test_unknown_questions_are_uniform_and_named(self):
+        r = MockJev().decide("x", {"z": choice("?", {"a": 1, "b": 2}), "s": score("?", ["lo", "mid", "hi"])})
+        self.assertEqual(r["z"].confidence, 0.0)
+        self.assertEqual(r["s"].value, 1.0)
         self.assertIn("NO es Jev", r.model)
 
 

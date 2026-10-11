@@ -5,20 +5,15 @@
 - Origen: https://github.com/Kryhr/26-quant-trading-skills (commit `d7eefaf1d2f000f80fb179fc9744a6b55dbd3cb4`)
 - Licencia: MIT, Copyright (c) 2026 Kryhr. Ver `LICENSE-quant-skills-Kryhr`.
 - Copiadas sin cambios. Son solo texto (SKILL.md y referencias), sin scripts. Se revisaron el 2026-10-11 antes de incorporarlas.
-- Se copiaron 12 de 31:
+- Se copiaron 12 de 31 cuando el proyecto era un robot de trading. Al pasar a análisis de Polymarket quedaron
+  las 5 que sirven para no confundir suerte con habilidad:
+  - statistical-significance-and-deflated-metrics (corrección por mirar muchos traders a la vez)
   - overfitting-and-robustness-checks
-  - statistical-significance-and-deflated-metrics
   - monte-carlo-trade-resampling-and-drawdown-distribution
-  - paper-trading-and-forward-test-protocol
-  - live-vs-backtest-drift-monitoring
-  - momentum-and-trend-following-pitfalls
-  - crypto-specific-strategy-pitfalls
-  - lookahead-bias-detection-methodology
-  - backtest-result-authenticity-audit
-  - position-sizing-and-risk-management
-  - strategy-research-log-and-versioning
-  - backtest-vs-broker-fill-reconciliation
-- Algunas citan skills que no se copiaron, como hypothesis-driven-strategy-design o execution-and-order-management-realism. Esas están en el repo de origen.
+  - lookahead-bias-detection-methodology (no usar datos posteriores a la decisión, p. ej. en copiabilidad)
+  - strategy-research-log-and-versioning (bitácora de hipótesis y escaneos)
+- Están escritas para backtests de estrategias: acá se aplican sus ideas de estadística, no sus partes de ejecución.
+- Algunas citan skills que no se copiaron. Esas están en el repo de origen.
 - Si se actualizan, hay que volver a revisarlas antes de copiar la versión nueva.
 
 ## TypeSafe (oficial)

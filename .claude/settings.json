@@ -2,15 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(python3 -m unittest:*)",
-      "Bash(python3 -m jevtrader backtest:*)",
-      "Bash(python3 -m jevtrader fetch:*)",
-      "Bash(python3 -m jevtrader news:*)",
-      "Bash(python3 -m jevtrader ping:*)"
+      "Bash(python3 -m polylens:*)"
     ],
     "deny": [
       "Read(./.env)",
-      "Edit(./.env)",
-      "Write(./.env)"
+      "Edit(./.env)"
     ]
   },
   "hooks": {
@@ -20,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_live.py\""
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_secrets.py\""
           }
         ]
       }

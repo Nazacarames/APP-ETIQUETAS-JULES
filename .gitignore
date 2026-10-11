@@ -1,9 +1,10 @@
+# Secretos
 .env
+
+# Python
 __pycache__/
 *.pyc
-data/jev_cache.jsonl
-data/journal.jsonl
-data/paper_account.json
-data/binance_*_state.json
+
+# Resultados y caché (se regeneran con python3 -m polylens ...)
+data/
 reports/
-data/*_4h.csv
