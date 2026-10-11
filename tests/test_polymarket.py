@@ -55,7 +55,8 @@ class TestPrices(unittest.TestCase):
     def test_long_windows_are_split_in_15_day_chunks(self):
         def handler(path, q):
             s, e = int(q["start"][0]), int(q["end"][0])
-            return page([{"timestamp": s, "price": 0.4}, {"timestamp": e, "price": 0.6}])
+            return page([{"timestamp": s - 60, "price": 0.4, "resolution_seconds": 60},
+                         {"timestamp": e - 60, "price": 0.6, "resolution_seconds": 60}])
 
         pm, router = pm_with(handler)
         series = pm.prices_history("tok", 0, 40 * DAY)
@@ -64,6 +65,16 @@ class TestPrices(unittest.TestCase):
         self.assertTrue(all(e - s <= 15 * DAY for s, e in spans))
         self.assertNotIn("bucket_seconds", router.calls[0][1])  # forzarlo puede devolver vacío
         self.assertEqual([t for t, _ in series], sorted({0, 15 * DAY, 30 * DAY, 40 * DAY}))
+
+
+    def test_no_lookahead_in_buckets_or_terminal_point(self):
+        """Un balde de 3 h que empieza a las 12:00 recién se conoce a las 15:00; el punto terminal con el
+        resultado final (resolution_seconds = 0) se descarta aunque venga fechado dentro de la ventana."""
+        pts = [{"timestamp": 43_200, "price": 0.505, "resolution_seconds": 10_800},
+               {"timestamp": 54_000, "price": 0.0, "resolution_seconds": 0},
+               {"timestamp": 60_000, "price": 0.7}]
+        pm, _ = pm_with(lambda path, q: page(pts))
+        self.assertEqual(pm.prices_history("tok", 0, DAY), [(54_000, 0.505)])
 
 
 class TestMarkets(unittest.TestCase):

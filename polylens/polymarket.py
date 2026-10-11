@@ -86,9 +86,14 @@ class Polymarket:
     MAX_SPAN = 15 * DAY  # la API acepta como máximo 15 días entre start y end
 
     def prices_history(self, token_id: str, start: int, end: int, ttl: float | None = None) -> list[tuple[int, float]]:
-        """Serie (timestamp, precio) de un token de resultado, con la resolución que elige la API
-        (forzar bucket_seconds puede devolver vacío). Ventanas largas se piden en tramos de 15 días.
-        Los mercados ya resueltos no cambian: conviene pasar un ttl largo."""
+        """Serie (momento en que el precio ya se conocía, precio) de un token de resultado, sin mirar el futuro.
+
+        La API etiqueta cada punto con el INICIO de su balde (1 min, 5 min, 3 h, 12 h según la antigüedad), así
+        que el precio puede incluir operaciones de hasta `resolution_seconds` después: acá se lo fecha al final
+        del balde. Además agrega un "punto terminal" (resolution_seconds = 0) que en mercados resueltos trae el
+        resultado final con una fecha anterior a la resolución: se descarta.
+        Ventanas largas se piden en tramos de 15 días. Los mercados ya resueltos no cambian: conviene un ttl largo.
+        """
         out: dict[int, float] = {}
         t = int(start)
         while t < end:
@@ -96,8 +101,10 @@ class Polymarket:
             for r in self.http.paginate(f"{DATA}/v2/prices-history",
                                         {"token_id": token_id, "start": t, "end": chunk_end},
                                         max_items=10_000, page_size=10_000, ttl=ttl):
-                if r.get("price") is not None:
-                    out[int(r["timestamp"])] = float(r["price"])
+                res = r.get("resolution_seconds")
+                if r.get("price") is None or res is None or int(res) <= 0:
+                    continue
+                out[int(r["timestamp"]) + int(res)] = float(r["price"])
             t = chunk_end
         return sorted(out.items())
 

@@ -24,6 +24,9 @@ escribís código. Polylens no opera.
 7. **Nada de aritmética, fechas ni conteos en preguntas a Jev.** Eso va en el código. La opción conservadora o
    neutral va primera ("other", "unclear").
 8. **No es una recomendación.** Rendimientos pasados no garantizan nada; no prometas ganancias.
+9. **Simulaciones con 100 USD.** Es el presupuesto del usuario: toda simulación arranca con 100 USD y respeta los
+   costos (0,1 % por lado en Binance spot) y el mínimo de orden de Binance (5 USDT). Operar con dinero real es
+   decisión del usuario y la corre él desde su PC.
 
 ## Comandos
 ```bash
@@ -40,7 +43,9 @@ python3 -m polylens ping                                 # prueba la API de Jev
 ## Mapa del código
 - `polylens/http.py` — GET con caché en disco, ritmo máximo, reintentos y paginación por cursor.
 - `polylens/polymarket.py` — Data API v2 y Gamma. Ojo: las posiciones cerradas vienen ordenadas por ganancia;
-  `resolved_positions` las pide por fecha y recorta todo a una misma ventana.
+  `resolved_positions` las pide por fecha y recorta todo a una misma ventana. `prices_history` fecha cada precio
+  al final de su balde y descarta el "punto terminal" de la API, que trae el resultado final con fecha anterior.
+- `research/polymarket_btc.py` — ¿Polymarket anticipa a BTC en Binance? (no; ver `research/RESULTADOS-polymarket-binance.md`).
 - `polylens/profiles.py` — métricas por trader, alertas y ranking con umbrales de azar y Bonferroni.
 - `polylens/scan.py` — ranking de Polymarket → perfiles → orden por consistencia.
 - `polylens/flows.py` — posiciones abiertas agregadas por mercado (coincidencias y disputas).

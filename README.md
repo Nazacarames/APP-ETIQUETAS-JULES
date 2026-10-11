@@ -70,17 +70,22 @@ Top 40 del ranking mensual, posiciones de los últimos 90 días. Las categorías
 - "Negativo" significa que su posición típica pierde. Algunos de esos 13 igual terminan en verde porque aciertan pocas apuestas grandes (ROI +4,7 % con t −0,98): es un perfil frágil.
 - **Copiabilidad** (4 mejores, hasta 60 compras cada uno, últimos 30 días, mercados resueltos):
   - El "sólido" con mejor t gana con su operatoria (entrar y salir), no manteniendo. Sus compras mantenidas hasta el final rendían −19 %, y copiadas con 1 h de demora, −20 %.
-  - En el agregado de los cuatro, copiar con 1 h de demora dio −8,9 % por compra (IC 95 %: −21,7 %…+7,2 %). Con 24 h, −15,3 %.
+  - En el agregado de los cuatro, copiar con 1 h de demora dio −8,9 % por compra (IC 95 %: −21,2 %…+5,4 %). Con 24 h, −15,3 %.
   - Ninguno resultó "copiable" con la muestra disponible.
 - Jev (jev-1.13.0) juzgó titulares de Ormuz e Irán contra los mercados abiertos de esos traders con criterio razonable. Ejemplo: "se intensifican los ataques en Ormuz" → a favor del "No" en "¿acuerdo EE. UU.–Irán por Ormuz antes del 31/10?", con confianza 0,95.
 
 Son datos de un solo día y de pocos traders: sirven para ver cómo leer el informe, no como conclusión.
 
+## Polymarket y Binance
+`research/polymarket_btc.py` prueba si las probabilidades diarias de Polymarket sobre Bitcoin anticipan el precio
+en Binance, simulando con 100 USD. No lo anticipan: esos mercados se resuelven con el precio de Binance y lo siguen.
+Detalle y simulaciones de la estrategia anterior con 100 USD en `research/RESULTADOS-polymarket-binance.md`.
+
 ## Limitaciones
 - El costo de cada posición sale del precio promedio que informa la API. En mercados de "riesgo negativo" (conversiones entre resultados) puede no coincidir con lo que el trader pagó realmente, así que el ROI es aproximado.
 - La copiabilidad usa solo mercados ya resueltos dentro de la ventana. Eso favorece mercados cortos (deportes, cripto diario).
 - Los traders muy activos llegan rápido al tope de 3000 fills, así que su ventana efectiva es más corta y se informa.
-- El historial de precios tiene la resolución que elige la API: un precio "a la hora t" es el primero observado hasta 2 h después.
+- El historial de precios tiene la resolución que elige la API (1 min a 12 h según la antigüedad). Cada precio se fecha al final de su balde y se descarta el punto final que la API agrega con el resultado: así no se filtra el futuro. Un precio "a la hora t" es el primero conocido hasta 2 h después.
 
 ## Estructura
 
