@@ -72,7 +72,9 @@ Reglas propias:
 4. **Sin mirar el futuro.** El modelo predice cada partido solo con los anteriores. Si tocás `futbol/modelo.py`,
    `tests/test_futbol_modelo.py` (incluye una liga sintética con ritmos conocidos) tiene que pasar.
 5. **Clave de API-Football:** va en un encabezado, nunca en la URL, la caché ni el repo. No la imprimas.
-6. **Cupo:** el plan gratis tiene 100 pedidos por día y solo temporadas 2022–2024. `sync` sigue donde quedó.
+6. **Cupo:** el plan gratis tiene 100 pedidos por día y solo temporadas 2022–2024 por liga. Pero las cuotas por
+   partido (`odds?fixture=`) y el listado `odds/mapping` sí funcionan para 2026: `cuotas` usa eso, con los
+   planteles actuales. `sync` sigue donde quedó.
 7. **Jev solo lee noticias** (si un jugador no juega o está en duda). La formación oficial manda sobre Jev.
 
 ```bash
@@ -83,8 +85,12 @@ python3 -m futbol remates --top 20               # ritmo de remates por equipo y
 python3 -m futbol partido <id> [--api] [--anotar]
 python3 -m futbol minutos [--minuto 70 --resultado 1-0 --cuota 2.1]
 python3 -m futbol noticias --partido <id> --rss <url>
-python3 -m futbol papel                          # liquida el diario en papel
+python3 -m futbol papel [--resultado ID:2-1]      # liquida el diario en papel
+python3 -m futbol cuotas --fecha AAAA-MM-DD       # hoy: bet365 contra Pinnacle e incoherencias de bet365
 ```
+`futbol/cuotas.py`: bet365 contra Pinnacle sin margen en mercados del partido (el hándicap asiático queda afuera porque
+las casas nombran distinto las líneas) e incoherencias entre mercados de jugadores de bet365 (gol ≤ 1+ al arco ≤
+1+ remate; k+1 ≤ k). Betano tiene mercados de jugadores mal etiquetados en la API: no se usa como referencia.
 
 ## Skills del proyecto
 - `/polymarket-analysis` — flujo de análisis completo y cómo interpretarlo sin engañarse.

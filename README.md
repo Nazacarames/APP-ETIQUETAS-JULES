@@ -104,6 +104,12 @@ a bet365 (sus reglas prohíben el acceso automático) y toma las cuotas de API-F
   deja en el diario en papel. `papel` lo liquida con lo que pasó.
 - **Minutos.** `minutos` dice qué tan probable es otro gol desde cada minuto según el resultado, y si una cuota en
   vivo paga bien.
+- **Cuotas de hoy** (`cuotas --fecha AAAA-MM-DD` o `--partido ID`). El plan gratis no da la temporada 2026 por liga,
+  pero sí las cuotas de cada partido, de bet365 y de otras 8 casas, con los planteles actuales. Compara bet365 contra
+  Pinnacle sin margen en ganador, goles y ambos marcan. También marca incoherencias de bet365 en mercados de jugadores:
+  si un gol paga menos que un remate al arco, o 2+ remates menos que 1+, uno de los precios está mal. Muestra la
+  probabilidad implícita de cada jugador y con `--anotar` deja las de valor en papel. `papel --resultado ID:2-1`
+  las liquida.
 - **Jev** lee titulares y avisa si un jugador no juega o está en duda; la formación oficial manda.
 - **Cupo gratis:** 100 pedidos por día y solo temporadas 2022–2024. Un partido = 1 pedido; `sync` sigue donde quedó.
   Para la temporada actual (2026) hace falta un plan pago.
@@ -142,6 +148,7 @@ futbol/
   valor.py        cuotas de bet365, valor, monto y diario en papel
   minutos.py      probabilidad de otro gol por minuto y resultado
   noticias.py     Jev: jugadores en duda o descartados
+  cuotas.py       bet365 contra Pinnacle e incoherencias de bet365 (cuotas actuales)
 tests/            sin red: transportes falsos y datos sintéticos
 .claude/          hook que bloquea leer .env y operar; skill /polymarket-analysis; skills de estadística
 ```

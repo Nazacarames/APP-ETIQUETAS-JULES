@@ -8,6 +8,8 @@
     python3 -m futbol minutos --minuto 70 --resultado 1-0 --cuota 2.10
     python3 -m futbol noticias --partido 1234567 --rss https://...
     python3 -m futbol papel                        # liquida y resume las apuestas en papel (100 USD)
+    python3 -m futbol cuotas --fecha 2026-10-12    # cuotas actuales: bet365 contra Pinnacle e incoherencias
+    python3 -m futbol cuotas --partido 1490520 --anotar
 
 Solo analiza. Las apuestas las decide y las hace el usuario en una casa con licencia de su provincia.
 """
@@ -21,6 +23,7 @@ from itertools import groupby
 from polylens.jev_client import MockJev, make_client
 from polylens.news import fetch_feed, parse_feed
 
+from . import cuotas as cq
 from . import minutos, valor
 from .api import FINISHED, ApiError, ApiFootball, odds_rows
 from .config import FutbolConfig, load_config, parse_competitions
@@ -270,9 +273,19 @@ def cmd_noticias(a, cfg):
         print(f"[{r['status']:>7} {r['confidence']:.2f}] {r['name']}: {r['headline']}  ({r['judge']})")
 
 
+def parse_score(text: str) -> tuple[int, tuple]:
+    """'1490520:2-1' o '1490520:2-1:1-0' (con entretiempo) -> (partido, (local, visitante[, (et_l, et_v)]))."""
+    fid, _, rest = text.partition(":")
+    parts = rest.split(":")
+    ft = tuple(int(x) for x in parts[0].split("-"))
+    ht = tuple(int(x) for x in parts[1].split("-")) if len(parts) > 1 else None
+    return int(fid), (ft[0], ft[1], ht)
+
+
 def cmd_papel(a, cfg):
     rows = load_appearances(cfg.data_dir, comps(a, cfg))
-    s = valor.journal_settle(cfg.data_dir / "papel.jsonl", rows, cfg.bankroll)
+    scores = dict(parse_score(t) for t in (a.resultado or []))
+    s = valor.journal_settle(cfg.data_dir / "papel.jsonl", rows, cfg.bankroll, scores)
     if not s.get("bets"):
         print("El diario en papel está vacío: usá python3 -m futbol partido <id> --anotar")
         return
@@ -280,6 +293,67 @@ def cmd_papel(a, cfg):
     if s["settled"]:
         print(f"apostado {s['staked']:.2f} USD · resultado {s['pnl']:+.2f} USD · ROI {s['roi']:+.1%} · "
               f"capital {cfg.bankroll:.0f} → {s['bankroll']:.2f} USD · aciertos esperados {s['expected_win_rate']:.0%}")
+
+
+def cmd_cuotas(a, cfg):
+    api = api_from(cfg)
+    min_edge = cfg.min_edge if a.min_valor is None else a.min_valor
+    targets = [{"fixture": f} for f in a.partido or []]
+    if a.fecha:
+        try:
+            targets += cq.league_fixtures_for_date(api, a.fecha, a.liga, max_pages=min(40, a.max_pedidos))
+        except ApiError as exc:
+            sys.exit(str(exc))
+        if not targets:
+            sys.exit(f"No encontré partidos de la liga {a.liga} con cuotas el {a.fecha}.")
+    if not targets:
+        sys.exit("Indicá --partido ID o --fecha AAAA-MM-DD")
+    for t in targets:
+        if api.http.requests >= a.max_pedidos:
+            say(f"Llegué al tope de {a.max_pedidos} pedidos; seguí con --partido para los que faltan.")
+            break
+        try:
+            resp = api.fixture_odds(t["fixture"])
+        except ApiError as exc:
+            say(f"partido {t['fixture']}: {exc}")
+            continue
+        if not resp:
+            print(f"partido {t['fixture']}: sin cuotas todavía")
+            continue
+        item = resp[0]
+        info = cq.summary(item)
+        title = f"{t.get('home')} vs {t.get('away')}" if t.get("home") else f"partido {info['fixture']}"
+        print(f"\n{title} · {info['league']} · {info['date']} · casas: {', '.join(info['books'])}")
+        tv = cq.team_value(item, min_edge=min_edge)
+        for r in tv:
+            r["stake"] = valor.stake(r["p"], r["odd"], cfg.bankroll, cap=cfg.max_stake_pct)
+        if tv:
+            print(f"  bet365 paga más que lo justo según Pinnacle (valor ≥ {min_edge:.0%}):")
+            for r in tv:
+                print(f"    {r['market']:<28} {r['selection']:<11} bet365 {r['odd']:>5.2f}  justa {r['fair_odd']:>5.2f}  "
+                      f"valor {r['ev']:+5.1%}  monto {r['stake']:.2f} USD")
+        elif "Pinnacle" not in info["books"]:
+            print("  Pinnacle no tiene cuotas de este partido: no hay referencia para comparar.")
+        else:
+            print(f"  Ningún mercado de bet365 supera a Pinnacle por {min_edge:.0%} o más.")
+        players = cq.bet365_players(item)
+        flags = cq.coherence_flags(players)
+        for f in flags:
+            print(f"  ¡Incoherencia! {f['player']}: '{f['should_be_less_likely']}' a {f['odd']:.2f} paga menos que "
+                  f"'{f['than']}' a {f['than_odd']:.2f}, y debería pagar más.")
+        if players and a.jugadores:
+            ranked = sorted(players.items(), key=lambda kv: kv[1]["sot"].get(1) or 99)[:a.jugadores]
+            print(f"  Jugadores según bet365 (cuota; entre paréntesis, probabilidad implícita con margen):")
+            for name, p in ranked:
+                cells = []
+                for label, odd in (("1+ rem", p["shots"].get(1)), ("2+ rem", p["shots"].get(2)),
+                                   ("1+ arco", p["sot"].get(1)), ("gol", p["goal"])):
+                    cells.append(f"{label} {odd:.2f} ({1 / odd:.0%})" if odd else f"{label} –")
+                print(f"    {name[:24]:<24} " + " · ".join(cells))
+        if a.anotar and tv:
+            n = valor.journal_add_team(cfg.data_dir / "papel.jsonl", info["fixture"], tv, title)
+            say(f"  {n} apuesta(s) anotadas en papel")
+    say(f"pedidos usados: {api.http.requests}")
 
 
 def cmd_proximos(a, cfg):
@@ -304,6 +378,9 @@ def build_parser() -> argparse.ArgumentParser:
     for name, help_ in (("validar", "¿el modelo de remates acierta?"), ("papel", "liquida y resume el diario en papel")):
         s = sub.add_parser(name, help=help_)
         s.add_argument("--competencias")
+        if name == "papel":
+            s.add_argument("--resultado", action="append",
+                           help="resultado de un partido para liquidar mercados de equipo: ID:2-1 o ID:2-1:1-0")
     s = sub.add_parser("remates", help="ritmo de remates por equipo y jugador")
     s.add_argument("--competencias")
     s.add_argument("--equipo")
@@ -322,6 +399,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--minuto", type=int)
     s.add_argument("--resultado", help="p. ej. 1-0 (local-visitante)")
     s.add_argument("--cuota", type=float, help="cuota en vivo de 'habrá otro gol'")
+    s = sub.add_parser("cuotas", help="cuotas actuales de bet365 contra Pinnacle e incoherencias (plan gratis)")
+    s.add_argument("--partido", type=int, action="append", help="ID de partido (repetible)")
+    s.add_argument("--fecha", help="AAAA-MM-DD: busca los partidos de la liga en esa fecha")
+    s.add_argument("--liga", type=int, default=128)
+    s.add_argument("--max-pedidos", type=int, default=60)
+    s.add_argument("--min-valor", type=float, help="valor mínimo para mostrar (por defecto FUTBOL_MIN_VALOR)")
+    s.add_argument("--jugadores", type=int, default=8, help="jugadores a mostrar por partido (0 = ninguno)")
+    s.add_argument("--anotar", action="store_true", help="anotar en papel lo que tenga valor")
     s = sub.add_parser("noticias", help="Jev: ¿algún titular dice que un jugador no juega?")
     s.add_argument("--partido", type=int, required=True)
     s.add_argument("--rss", action="append", required=True)
@@ -331,7 +416,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 COMMANDS = {"estado": cmd_estado, "ligas": cmd_ligas, "sync": cmd_sync, "validar": cmd_validar, "remates": cmd_remates,
             "partido": cmd_partido, "minutos": cmd_minutos, "noticias": cmd_noticias, "papel": cmd_papel,
-            "proximos": cmd_proximos}
+            "proximos": cmd_proximos, "cuotas": cmd_cuotas}
 
 
 def main(argv: list[str] | None = None, cfg: FutbolConfig | None = None) -> None:

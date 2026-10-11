@@ -93,6 +93,24 @@ class ApiFootball:
         """Cuotas previas al partido. La API las guarda pocos días: hay que pedirlas antes de cada fecha."""
         return list(self.all_pages("odds", {"fixture": fixture, "bookmaker": bookmaker}, ttl=1800))
 
+    def fixture_odds(self, fixture: int, bookmaker: int | None = None) -> list[dict]:
+        """Todas las casas (o una) para un partido. Funciona en el plan gratis aunque sea de 2026."""
+        return list(self.all_pages("odds", {"fixture": fixture, "bookmaker": bookmaker}, ttl=1800))
+
+    def fixtures_by_date(self, date: str) -> list[dict]:
+        """Todos los partidos de una fecha (AAAA-MM-DD). Puede no estar habilitado en el plan gratis."""
+        return list(self.all_pages("fixtures", {"date": date}, ttl=1800))
+
+    def odds_mapping_pages(self, max_pages: int = 40):
+        """Partidos con cuotas disponibles (todas las ligas), página por página: el que llama decide cuándo parar."""
+        page = 1
+        while page <= max_pages:
+            body = self.get("odds/mapping", {"page": page} if page > 1 else {}, ttl=3 * 3600)
+            yield body.get("response") or []
+            if page >= int((body.get("paging") or {}).get("total") or 1):
+                return
+            page += 1
+
     def live_odds(self, fixture: int) -> list[dict]:
         return list(self.all_pages("odds/live", {"fixture": fixture}, ttl=30))
 

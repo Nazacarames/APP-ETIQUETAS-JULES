@@ -151,7 +151,25 @@ def journal_add(path: Path, fixture: int, bets: list[dict]) -> int:
     return n
 
 
-def journal_settle(path: Path, appearances: list[dict], bankroll: float = 100.0) -> dict:
+def journal_add_team(path: Path, fixture: int, bets: list[dict], label: str = "") -> int:
+    """Apuestas de mercados de equipo (bet365 contra Pinnacle) al diario en papel."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    n = 0
+    with open(path, "a", encoding="utf-8") as fh:
+        for b in bets:
+            if b.get("stake", 0) <= 0:
+                continue
+            fh.write(json.dumps({"t": int(time.time()), "kind": "equipo", "fixture": fixture, "label": label,
+                                 "market": b["market"], "selection": b["selection"], "odd": b["odd"],
+                                 "p": round(b["p"], 4), "stake": b["stake"], "status": "pendiente"},
+                                ensure_ascii=False) + "\n")
+            n += 1
+    return n
+
+
+def journal_settle(path: Path, appearances: list[dict], bankroll: float = 100.0,
+                   scores: dict | None = None) -> dict:
     """Liquida las apuestas pendientes con lo que hizo el jugador. Si no jugó, se anula (como en bet365)."""
     path = Path(path)
     if not path.exists():
@@ -159,8 +177,22 @@ def journal_settle(path: Path, appearances: list[dict], bankroll: float = 100.0)
     actual = {(a["fixture"], a["player"]): a for a in appearances}
     played_fixtures = {a["fixture"] for a in appearances}
     entries = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    from .cuotas import settle_team
     for e in entries:
-        if e["status"] != "pendiente" or e["fixture"] not in played_fixtures:
+        if e["status"] != "pendiente":
+            continue
+        if e.get("kind") == "equipo":
+            sc = (scores or {}).get(e["fixture"])
+            if not sc:
+                continue
+            won = settle_team(e["market"], e["selection"], sc[0], sc[1], sc[2] if len(sc) > 2 else None)
+            if won is None:
+                e.update(status="anulada", pnl=0.0)
+            else:
+                e.update(status="ganada" if won else "perdida",
+                         pnl=round(e["stake"] * (e["odd"] - 1) if won else -e["stake"], 2))
+            continue
+        if e["fixture"] not in played_fixtures:
             continue
         a = actual.get((e["fixture"], e["player"]))
         if a is None:
