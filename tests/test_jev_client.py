@@ -159,6 +159,18 @@ class TestJudge(unittest.TestCase):
         self.assertTrue(v.allow)
         self.assertEqual(v.size_mult, 0.5)
 
+    def test_shadow_mode_records_veto_but_trades(self):
+        v = self.judge([(200, entry_body(regime="range_bound"))], shadow=True).review_entry({"x": "y"})
+        self.assertTrue(v.allow)
+        self.assertEqual(v.size_mult, 1.0)
+        self.assertFalse(v.summary()["shadow"]["allow"])
+        self.assertIn("vetaría", v.reasons[0])
+
+    def test_shadow_mode_survives_api_errors(self):
+        v = self.judge([(503, {})], shadow=True).review_entry({"x": "y"})
+        self.assertTrue(v.allow)
+        self.assertFalse(v.shadow["allow"])
+
     def test_news_question_added_only_with_headlines(self):
         t = FakeTransport([(200, {**entry_body(), "answers": {**entry_body()["answers"],
                                                               "news_risk": {"type": "noul", "noul": 0.9}}})])

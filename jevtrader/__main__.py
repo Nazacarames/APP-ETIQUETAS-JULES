@@ -143,6 +143,16 @@ def cmd_binance(args, settings):
             free, locked = bal.get(asset, (0, 0))
             print(f"  {asset}: libre {free} · bloqueado {locked}")
         return
+    if args.roundtrip_test:
+        from .binance import roundtrip_test
+        if real:
+            sys.exit("La prueba de ida y vuelta solo corre en Demo Mode.")
+        res = roundtrip_test(api, args.symbol, api.price(args.symbol), settings.data_dir / "binance_roundtrip_state.json")
+        Journal(settings.data_dir / "journal.jsonl").log("prueba_ida_y_vuelta", symbol=args.symbol, **res)
+        print(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+        print("OK: compra, stop en Binance, cancelación y venta funcionan." if res["ok"]
+              else "FALLÓ: revisá los pasos de arriba antes de seguir.")
+        return
     state_file = settings.data_dir / f"binance_{'live' if real else 'demo'}_state.json"
     trader = BinanceTrader(api, state_file, args.capital)
     judge = JevJudge(_client(settings, args), settings.gate)
@@ -228,6 +238,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--capital", type=float, default=1_000.0,
                    help="capital que el bot puede usar, en la moneda de cotización (p. ej. USDT)")
     p.add_argument("--check", action="store_true", help="probar claves, permisos y saldos sin operar")
+    p.add_argument("--roundtrip-test", action="store_true",
+                   help="solo Demo: compra el mínimo, verifica el stop en Binance y vende")
     p.add_argument("--once", action="store_true", help="procesar la última vela y salir")
     p.add_argument("--mock", action="store_true", help="usar MockJev como juez")
     p.set_defaults(func=cmd_binance)

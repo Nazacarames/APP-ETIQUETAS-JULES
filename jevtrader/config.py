@@ -7,6 +7,7 @@ por operación y, si Jev falla, no se abre nada ("fail closed").
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -21,7 +22,12 @@ def load_dotenv(path: str | Path = ".env") -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        value = value.strip()
+        if value[:1] in ('"', "'") and value[0] in value[1:]:
+            value = value[1:value.index(value[0], 1)]  # entre comillas: se respeta tal cual
+        else:
+            value = re.split(r"\s+#", value, maxsplit=1)[0].strip()  # comentario al final de la línea
+        os.environ.setdefault(key.strip(), value)
 
 
 def _env(name: str, default, cast=str):
@@ -59,6 +65,7 @@ class GateConfig:
     max_overextended: float = 0.70  # noul >= esto => medio tamaño
     max_news_risk: float = 0.60     # noul >= esto => veto
     fail_closed: bool = True        # si Jev no responde: no abrir posiciones
+    shadow: bool = False            # True: Jev solo opina (se registra); la estrategia opera igual
 
 
 @dataclass(frozen=True)
@@ -104,6 +111,7 @@ def load_settings(dotenv: str | Path = ".env") -> Settings:
         max_overextended=_env("GATE_MAX_OVEREXTENDED", GateConfig.max_overextended, float),
         max_news_risk=_env("GATE_MAX_NEWS_RISK", GateConfig.max_news_risk, float),
         fail_closed=_env("GATE_FAIL_CLOSED", True, bool),
+        shadow=_env("GATE_SHADOW", False, bool),
     )
     risk = RiskConfig(
         risk_per_trade=_env("RISK_PER_TRADE", RiskConfig.risk_per_trade, float),

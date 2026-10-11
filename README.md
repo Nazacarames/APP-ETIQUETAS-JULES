@@ -64,7 +64,7 @@ Según TypeSafe, la latencia es de 70–500 ms y el costo de US$ 0,042 por mill�
 
 ```bash
 # Requiere Python 3.10+. No hay dependencias externas.
-python3 -m unittest discover -s tests -t .           # 53 tests
+python3 -m unittest discover -s tests -t .           # 59 tests
 
 python3 -m jevtrader backtest --synthetic --mock      # sin red, sin API key
 python3 -m jevtrader fetch --symbol BTCUSDT           # baja velas diarias de Binance a data/
@@ -96,11 +96,13 @@ Binance bloquea algunas ubicaciones, entre ellas muchos servidores en la nube (e
    cp .env.example .env          # en Windows: copy .env.example .env
    ```
 3. Entrá a [demo.binance.com](https://demo.binance.com) con tu cuenta de Binance, abrí **API Key Management** y creá una clave con permiso **solo de trading spot**, sin retiros. Pegá la clave y el secreto en `.env` (`BINANCE_API_KEY`, `BINANCE_API_SECRET`). Si tenés clave de Jev, ponela en `TYPESAFE_API_KEY`; si no, el juez es MockJev.
-4. Probá la conexión sin operar:
+4. Probá la conexión sin operar, y después la mecánica completa (compra mínima, stop en Binance, venta):
    ```bash
    python3 -m jevtrader binance --check
+   python3 -m jevtrader binance --roundtrip-test
    ```
-5. Procesá la última vela cerrada (compra solo si hay señal y Jev la aprueba):
+5. Seguí el protocolo de prueba: **[research/PROTOCOLO-DEMO.md](research/PROTOCOLO-DEMO.md)**. Tiene las fases, qué esperar y los umbrales para seguir, frenar o pasar a real, todos decididos antes de empezar. Durante la prueba poné `GATE_SHADOW=true`: la estrategia opera igual y lo que diga Jev queda anotado para medirlo.
+6. Procesá la última vela cerrada (compra solo si hay señal y, fuera del modo sombra, Jev la aprueba):
    ```bash
    python3 -m jevtrader binance --symbol BTCUSDT --capital 1000 --once
    ```
@@ -112,6 +114,12 @@ Cómo se comporta:
 - Si cancelás el stop a mano, el bot lo vuelve a poner en la próxima vela.
 - Estado en `data/binance_demo_state.json` y decisiones en `data/journal.jsonl`.
 - Pasar a dinero real requiere dos cambios que hacés vos en `.env`: `BINANCE_ENV=live` y `LIVE_TRADING=true`. Antes, mirá la checklist de más abajo.
+
+## Investigación
+
+- `python3 research/evaluate.py`: backtest de 11 monedas con holdout, grilla de 27 parámetros, costos y velas de 4 h. Resultados en [research/RESULTADOS-2026-10.md](research/RESULTADOS-2026-10.md).
+- `python3 research/significance.py`: Sharpe deflactado, probabilidad de sobreajuste (PBO) y Monte Carlo en R.
+- **Resumen honesto:** controla muy bien las caídas, pero la ventaja **no es estadísticamente significativa** después de corregir por las combinaciones probadas (Sharpe deflactado 75,5 %, PBO 36 %). Además depende de pocos trades enormes, en especial de 2020.
 
 ## Cómo se usa con Claude Code
 
@@ -181,7 +189,7 @@ jevtrader/
   live.py        loop en papel (idempotente, una vela por corrida)
   news.py        triage de titulares
   report.py      reporte HTML + JSON
-tests/           53 tests (unittest), incluido un exchange Binance simulado
+tests/           59 tests (unittest), incluido un exchange Binance simulado
 .claude/         settings, hook guard_live.py y 3 skills
 ```
 

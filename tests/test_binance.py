@@ -48,6 +48,8 @@ class FakeBinance:
                 {"filterType": "PRICE_FILTER", "tickSize": "0.01000000"},
                 {"filterType": "LOT_SIZE", "minQty": "0.00001000", "stepSize": "0.00001000"},
                 {"filterType": "NOTIONAL", "minNotional": "5.00000000"}]}]}
+        if path == "/api/v3/ticker/price":
+            return 200, {"symbol": q["symbol"], "price": str(self.price)}
         if path == "/api/v3/account":
             return 200, {"canTrade": True, "balances": [
                 {"asset": a, "free": str(f), "locked": str(l)} for a, (f, l) in self.bal.items()]}
@@ -213,6 +215,25 @@ class TestTrader(unittest.TestCase):
         fake.fill_stop(res["stop_order_id"])
         out = t.close("BTCUSDT", "salida de canal")
         self.assertEqual(out["reason"], "stop (ejecutado en Binance)")
+
+
+class TestRoundtrip(unittest.TestCase):
+    def test_roundtrip_ok_and_leaves_no_position(self):
+        from jevtrader.binance import roundtrip_test
+        fake = FakeBinance(btc=0.5)  # BTC previo del usuario: no se toca
+        with tempfile.TemporaryDirectory() as d:
+            client = api(fake)
+            res = roundtrip_test(client, "BTCUSDT", client.price("BTCUSDT"), Path(d) / "rt.json")
+        self.assertTrue(res["ok"], res)
+        self.assertEqual(res["steps"]["stop_despues"], "CANCELED")
+        self.assertGreaterEqual(fake.bal["BTC"][0], Decimal("0.5"))
+        self.assertEqual(fake.bal["BTC"][1], Decimal(0))
+
+    def test_roundtrip_refuses_live(self):
+        from jevtrader.binance import roundtrip_test
+        live = BinanceSpot("key", SECRET, live=True, live_trading_enabled=True, transport=FakeBinance())
+        with self.assertRaises(LiveTradingDisabled):
+            roundtrip_test(live, "BTCUSDT", 50_000, "/tmp/nope.json")
 
 
 class TestStep(unittest.TestCase):

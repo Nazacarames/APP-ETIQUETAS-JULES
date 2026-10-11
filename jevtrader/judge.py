@@ -25,10 +25,14 @@ class Verdict:
     answers: dict[str, Any] = field(default_factory=dict)
     latency_ms: float = 0.0
     model: str = ""
+    shadow: dict[str, Any] | None = None  # en modo sombra: lo que Jev habría decidido
 
     def summary(self) -> dict:
-        return {"allow": self.allow, "size_mult": self.size_mult, "reasons": self.reasons,
-                "answers": self.answers, "latency_ms": round(self.latency_ms, 1), "model": self.model}
+        out = {"allow": self.allow, "size_mult": self.size_mult, "reasons": self.reasons,
+               "answers": self.answers, "latency_ms": round(self.latency_ms, 1), "model": self.model}
+        if self.shadow is not None:
+            out["shadow"] = self.shadow
+        return out
 
 
 class JevJudge:
@@ -37,6 +41,16 @@ class JevJudge:
         self.gate = gate
 
     def review_entry(self, state: dict, asset: str | None = None, headlines: list[str] | None = None) -> Verdict:
+        """Con GATE_SHADOW=true la estrategia opera siempre a tamaño completo y el veredicto de Jev
+        solo queda registrado: así se miden sus vetos hacia adelante sin perder operaciones."""
+        v = self._review(state, asset, headlines)
+        if not self.gate.shadow:
+            return v
+        would = "aprobaría" if v.allow else "vetaría"
+        return Verdict(True, 1.0, [f"modo sombra: Jev {would} ({'; '.join(v.reasons)})"], v.answers,
+                       v.latency_ms, v.model, shadow={"allow": v.allow, "size_mult": v.size_mult, "reasons": v.reasons})
+
+    def _review(self, state: dict, asset: str | None, headlines: list[str] | None) -> Verdict:
         if headlines:
             state = {**state, "recent_headlines": headlines[:10]}
         questions = entry_review(asset, with_news=bool(headlines))

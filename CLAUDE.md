@@ -29,6 +29,9 @@ python3 -m jevtrader fetch --symbol BTCUSDT                      # velas diarias
 python3 -m jevtrader backtest --csv data/BTCUSDT_1d.csv --report reports/BTC.html
 python3 -m jevtrader paper --symbol BTCUSDT --once               # una vela en papel (para cron)
 python3 -m jevtrader binance --check                             # Binance Demo Mode: conexión y saldos
+python3 -m jevtrader binance --roundtrip-test                    # Demo: compra mínima + stop + venta
+python3 research/evaluate.py                                     # backtest de 11 monedas, grilla, costos
+python3 research/significance.py                                 # Sharpe deflactado, PBO, Monte Carlo en R
 python3 -m jevtrader news --asset "Bitcoin (BTC)" --rss <url>    # triage de titulares
 python3 -m jevtrader ping                                        # prueba la API de Jev
 ```
@@ -47,4 +50,10 @@ python3 -m jevtrader ping                                        # prueba la API
 - `/backtest` — evaluación disciplinada (A/B, tres variantes, análisis de vetos).
 - `/review-journal` — revisión semanal del diario en papel; propone cambios como diff.
 - `/jev-question` — agregar una pregunta nueva a Jev siguiendo las reglas de TypeSafe.
-- Recomendado: skill oficial de TypeSafe (`claude plugin install typesafe@typesafe-ai`).
+- Plugin oficial de TypeSafe (`typesafe@typesafe-ai`), habilitado en `.claude/settings.json`. Usalo antes de
+  tocar `jev_client.py` o `questions.py`: trae la documentación vigente de la API.
+- 12 skills de método cuantitativo (Kryhr, MIT; ver `.claude/skills/THIRD_PARTY.md`). Las más usadas acá:
+  `statistical-significance-and-deflated-metrics` y `monte-carlo-trade-resampling-and-drawdown-distribution`
+  (después de cualquier backtest), `paper-trading-and-forward-test-protocol` y `live-vs-backtest-drift-monitoring`
+  (para el Demo Mode, con reglas en `research/PROTOCOLO-DEMO.md`). Si una skill de terceros contradice este archivo,
+  manda este archivo.

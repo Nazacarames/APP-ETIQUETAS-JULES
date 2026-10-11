@@ -57,3 +57,26 @@ Reproducir: `python3 research/evaluate.py` (baja los datos que falten de Binance
 2. Correr Binance Demo Mode varias semanas. Es el único holdout limpio que queda.
 3. Si se quiere operar varias monedas, primero hay que sumar soporte multi-símbolo al loop de Binance. Hoy el estado se guarda en un único archivo: no corras varios procesos a la vez.
 4. Dinero real recién con un resultado positivo en el punto 1 o en el 2, y con un capital que se pueda perder.
+
+## Anexo: significancia y Monte Carlo (`research/significance.py`)
+
+Cartera equiponderada de las 11 monedas, rebalanceo diario, 1.998 días (abril de 2021 → octubre de 2026), parámetros 20/10/2.
+
+| Medida | Valor | Lectura |
+|---|---:|---|
+| Sharpe anual | 0,70 | Puesto 11 de las 27 combinaciones de la grilla |
+| P(Sharpe real > 0), sin corregir | 94,4 % | Casi significativo |
+| Sharpe que daría el azar con 27 pruebas | 0,39 | Umbral del Sharpe deflactado |
+| **Sharpe deflactado: P(real > azar)** | **75,5 %** | **No significativo** (haría falta ≥ 95 %) |
+| **PBO** (CSCV, 16 bloques, 12.870 particiones) | **35,9 %** | Menos de 50 %: hay algo de sobreajuste, pero no domina |
+| P(Sharpe del "ganador" < 0 fuera de muestra) | 4,6 % | El mejor de cada partición rara vez pierde afuera |
+| Asimetría / curtosis diaria | −1,19 / 29,1 | Colas gordas: pocos días explican mucho |
+
+**Trades (297 de las 11 monedas, en R):**
+
+- **Distribución:** media +1,58 R, mediana −0,57 R, 41 % ganadores. El peor trade fue −1,07 R y el mejor, +63,9 R.
+- **Dependencia de pocos trades:** los 5 mejores trades son el 47 % del total y los 10 mejores, el 67 %. Sin los 10 mejores, la media cae a +0,54 R. El tramo B tiene una media de +0,80 R, pero sin el mejor trade (XRP, +41,7 R) baja a +0,31 R.
+- **Por año:** 2019 +22 R · 2020 +247 R · 2021 +68 R · 2022 −9 R · 2023 +63 R · 2024 +74 R · 2025 −7 R · 2026 +10 R.
+- **Rachas:** la caída histórica, con los trades en su orden real, fue de 32,3 R. Es peor que el p95 del Monte Carlo por bloques (26,9 R): las pérdidas se agrupan en el tiempo porque las monedas se mueven juntas. Hay que planificar el riesgo con la caída histórica, no con la mediana.
+
+**Conclusión:** la estrategia tiene un perfil de tendencia real (pocas ganancias grandes, muchas pérdidas chicas), pero la evidencia **no alcanza para afirmar una ventaja** después de corregir por las 27 pruebas, y depende mucho de 2020. Los umbrales del Monte Carlo están en `research/PROTOCOLO-DEMO.md`.

@@ -157,6 +157,9 @@ class BinanceSpot:
                 tick=_dec(f["PRICE_FILTER"]["tickSize"]), min_notional=_dec(notional))
         return self._rules[symbol]
 
+    def price(self, symbol: str) -> float:
+        return float(self._call("GET", "/api/v3/ticker/price", {"symbol": symbol})["price"])
+
     def balances(self) -> dict[str, tuple[Decimal, Decimal]]:
         acct = self._call("GET", "/api/v3/account", {"omitZeroBalances": "true"}, signed=True)
         return {b["asset"]: (_dec(b["free"]), _dec(b["locked"])) for b in acct["balances"]}
@@ -285,6 +288,34 @@ class BinanceTrader:
         self.state["realized_pnl"] += pnl
         self._save()
         return {"event": "salida", "reason": reason, "exit": price, "pnl": round(pnl, 4)}
+
+
+def roundtrip_test(api: BinanceSpot, symbol: str, price: float, state_path: str | Path) -> dict:
+    """Prueba de ejecución SOLO en Demo Mode: compra el mínimo, verifica el stop en Binance y vende.
+
+    BTC da ~4 señales por año: esperar una para validar órdenes lleva meses. Esto prueba la
+    mecánica completa (compra, stop guardado, cancelación, venta) en un minuto.
+    """
+    if api.live:
+        raise LiveTradingDisabled("La prueba de ida y vuelta solo corre en Demo Mode.")
+    r = api.rules(symbol)
+    notional = max(r.min_notional * 2, Decimal("10"))
+    qty = floor_to(notional / _dec(price), r.step) + r.step
+    trader = BinanceTrader(api, state_path, capital=float(notional) * 4)
+    steps: dict[str, Any] = {}
+    opened = trader.open(symbol, float(qty), stop=price * 0.9, reason="prueba de ida y vuelta")
+    steps["compra"] = opened
+    if opened["event"] != "entrada":
+        return {"ok": False, "steps": steps}
+    o = api.order(symbol, opened["stop_order_id"])
+    steps["stop_en_binance"] = {"status": o.get("status"), "stopPrice": o.get("stopPrice")}
+    closed = trader.close(symbol, "fin de la prueba")
+    steps["venta"] = closed
+    after = api.order(symbol, opened["stop_order_id"]).get("status")
+    steps["stop_despues"] = after
+    ok = (steps["stop_en_binance"]["status"] == "NEW" and closed.get("event") == "salida"
+          and after in ("CANCELED", "EXPIRED") and symbol not in trader.state["positions"])
+    return {"ok": ok, "steps": steps}
 
 
 def step_binance(symbol: str, interval: str, settings: Settings, trader: BinanceTrader, judge: JevJudge,
