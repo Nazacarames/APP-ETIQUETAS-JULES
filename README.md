@@ -87,6 +87,31 @@ Detalle y simulaciones de la estrategia anterior con 100 USD en `research/RESULT
 simulando con 100 USD. Resumen en `research/RESULTADOS-apuestas-deportivas.md`: acertar seguido es fácil, ganar plata
 no; la única ventaja aparece buscando la mejor cuota entre decenas de casas.
 
+## Analista de fútbol argentino (`python3 -m futbol`)
+Analiza la Liga Profesional Argentina con datos de [API-Football](https://www.api-football.com) para apuestas
+en bet365 (Provincia de Buenos Aires). Solo analiza y anota en papel: las apuestas las decide y las hace el usuario.
+
+- **Remates por jugador.** Para cada titular calcula la probabilidad de 1, 2 o 3 remates (totales y al arco).
+  Usa su ritmo por 90 minutos contraído hacia el promedio de su posición, los minutos que juega de titular, cuánto
+  concede el rival y la localía, con una binomial negativa. bet365 liquida estos mercados con datos de Opta; API-Football
+  no es Opta, así que puede haber diferencias de conteo.
+- **Validación sin mirar el futuro.** `validar` predice cada partido solo con los anteriores y compara contra la
+  línea base "a ojo" (en cuántos partidos de titular llegó a ese número).
+- **Valor.** `partido <id>` compara con las cuotas de bet365 que traiga la API (casa ID 8) y con las que cargues a mano
+  en `data/futbol/cuotas.csv`. Sugiere monto con 100 USD (un cuarto de Kelly, tope 3 %) y con `--anotar` lo
+  deja en el diario en papel. `papel` lo liquida con lo que pasó.
+- **Minutos.** `minutos` dice qué tan probable es otro gol desde cada minuto según el resultado, y si una cuota en
+  vivo paga bien.
+- **Jev** lee titulares y avisa si un jugador no juega o está en duda; la formación oficial manda.
+- **Cupo gratis:** 100 pedidos por día y solo temporadas 2022–2024. Un partido = 1 pedido; `sync` sigue donde quedó.
+  Para la temporada actual (2026) hace falta un plan pago.
+
+```bash
+python3 -m futbol sync                 # repetir cada día hasta completar 2024 (~6 días con el plan gratis)
+python3 -m futbol validar
+python3 -m futbol remates --top 20
+```
+
 ## Limitaciones
 - El costo de cada posición sale del precio promedio que informa la API. En mercados de "riesgo negativo" (conversiones entre resultados) puede no coincidir con lo que el trader pagó realmente, así que el ROI es aproximado.
 - La copiabilidad usa solo mercados ya resueltos dentro de la ventana. Eso favorece mercados cortos (deportes, cripto diario).
@@ -108,6 +133,13 @@ polylens/
   jev_client.py   cliente de Jev (/v1/systemone), caché y MockJev
   report.py       informe HTML autocontenido
   store.py        resultados guardados con fecha
+futbol/
+  api.py          cliente de API-Football (clave en encabezado, sin cachear errores)
+  datos.py        descarga incremental y tabla de apariciones por jugador
+  modelo.py       remates por jugador y validación sin lookahead
+  valor.py        cuotas de bet365, valor, monto y diario en papel
+  minutos.py      probabilidad de otro gol por minuto y resultado
+  noticias.py     Jev: jugadores en duda o descartados
 tests/            sin red: transportes falsos y datos sintéticos
 .claude/          hook que bloquea leer .env y operar; skill /polymarket-analysis; skills de estadística
 ```

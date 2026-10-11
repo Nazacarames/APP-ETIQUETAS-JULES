@@ -101,14 +101,16 @@ class TestGuardHook(unittest.TestCase):
 
     def test_blocks(self):
         for cmd in ("cat .env", "grep KEY ./.env", "source .env && run", "pip install py-clob-client",
-                    "curl -X POST https://clob.polymarket.com/order", "export PRIVATE_KEY=0x1"):
+                    "curl -X POST https://clob.polymarket.com/order", "export PRIVATE_KEY=0x1",
+                    "curl https://www.bet365.com/#/AC/B1/",
+                    "python3 -c 'import requests; requests.get(\"https://www.bet365.ar\")'"):
             r = self.run_hook(cmd)
             self.assertEqual(r.returncode, 2, cmd)
             self.assertIn("guard_secrets", r.stderr)
 
     def test_allows(self):
         for cmd in ("cat .env.example", "python3 -m polylens scan --top 50", "python3 -m unittest discover -s tests",
-                    "curl https://data-api.polymarket.com/v2/leaderboard"):
+                    "curl https://data-api.polymarket.com/v2/leaderboard", "python3 -m futbol partido 1 --api"):
             self.assertEqual(self.run_hook(cmd).returncode, 0, cmd)
 
     def test_bad_input_is_ignored(self):

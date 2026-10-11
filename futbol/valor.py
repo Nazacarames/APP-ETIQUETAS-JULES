@@ -37,6 +37,8 @@ def match_player(name: str, players: list[dict]) -> dict | None:
     cands = [p for p in players if norm(p.get("name")).split()[-1:] == [last]]
     if len(cands) == 1:
         return cands[0]
+    if len(n.split()) < 2:
+        return None  # solo el apellido y hay varios: no adivinar
     first = n.split()[0].rstrip(".")
     cands = [p for p in cands if norm(p.get("name")).startswith(first[:1])]
     return cands[0] if len(cands) == 1 else None

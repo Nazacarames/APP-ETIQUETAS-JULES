@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Hook PreToolUse de Claude Code: el agente no lee secretos y este proyecto no opera.
+"""Hook PreToolUse de Claude Code: el agente no lee secretos, no opera y no automatiza casas de apuestas.
 
-Polylens solo analiza datos públicos. Bloquea comandos que lean .env o que intenten
-firmar u operar en Polymarket (además, Polymarket está bloqueado en Argentina desde
-marzo de 2026). Salir con código 2 bloquea el comando y el mensaje le llega a Claude.
+Polylens y el analista de fútbol solo analizan datos. Bloquea comandos que lean .env, que
+intenten firmar u operar en Polymarket (bloqueado en Argentina desde marzo de 2026) o que
+accedan en forma automática a bet365 (sus reglas lo prohíben). Salir con código 2 bloquea
+el comando y el mensaje le llega a Claude.
 """
 import json
 import re
@@ -14,6 +15,8 @@ BLOCKS = [
     (r"clob\.polymarket\.com/(order|orders|auth)", "Polylens solo analiza: no envía órdenes a Polymarket."),
     (r"py[-_]clob[-_]client|clob-client", "Polylens solo analiza: no instala ni usa clientes de órdenes."),
     (r"PRIVATE_KEY", "Polylens no maneja claves privadas de billeteras."),
+    (r"(curl|wget|requests|urllib|playwright|selenium|chromium)\b.*bet365\.",
+     "bet365 prohíbe el acceso automático: sus cuotas se cargan a mano o llegan por API-Football."),
 ]
 
 

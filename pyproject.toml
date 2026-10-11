@@ -1,16 +1,17 @@
 [project]
 name = "polylens"
 version = "0.1.0"
-description = "Análisis de los mejores traders y mercados de Polymarket (solo lectura de datos públicos), con Jev para leer texto."
+description = "Análisis de Polymarket y analista de fútbol argentino (solo lectura de datos), con Jev para leer texto."
 requires-python = ">=3.10"
 dependencies = []  # solo librería estándar
 
 [project.scripts]
 polylens = "polylens.__main__:main"
+futbol = "futbol.__main__:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["polylens"]
+packages = ["polylens", "futbol"]

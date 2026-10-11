@@ -57,6 +57,34 @@ python3 -m polylens ping                                 # prueba la API de Jev
 - `polylens/jev_client.py` — cliente de `/v1/systemone`, caché JSONL, MockJev.
 - `polylens/report.py`, `polylens/store.py`, `polylens/__main__.py`.
 
+## Analista de fútbol argentino (`futbol/`)
+Remates por jugador, minutos de partido y cuotas de bet365 para la Liga Profesional Argentina. El usuario apuesta
+en Provincia de Buenos Aires, donde bet365 tendría licencia del IPLyC (fuentes comerciales; conviene confirmarlo).
+
+Reglas propias:
+1. **Solo análisis y papel.** Toda sugerencia va primero al diario en papel (`data/futbol/papel.jsonl`) con 100 USD,
+   cuarto de Kelly y tope de 3 % por apuesta. Apostar plata real es decisión del usuario.
+2. **Nada de acceso automático a bet365** (sus reglas lo prohíben; el hook lo bloquea). Sus cuotas llegan por
+   API-Football (casa ID 8) o las carga el usuario en `data/futbol/cuotas.csv`.
+3. **"Bugs en cuotas" no es una estrategia:** las cuotas con errores evidentes la casa las anula. Lo que se busca
+   es valor: cuota × probabilidad del modelo − 1 ≥ 5 %.
+4. **Sin mirar el futuro.** El modelo predice cada partido solo con los anteriores. Si tocás `futbol/modelo.py`,
+   `tests/test_futbol_modelo.py` (incluye una liga sintética con ritmos conocidos) tiene que pasar.
+5. **Clave de API-Football:** va en un encabezado, nunca en la URL, la caché ni el repo. No la imprimas.
+6. **Cupo:** el plan gratis tiene 100 pedidos por día y solo temporadas 2022–2024. `sync` sigue donde quedó.
+7. **Jev solo lee noticias** (si un jugador no juega o está en duda). La formación oficial manda sobre Jev.
+
+```bash
+python3 -m futbol estado                         # plan y pedidos usados hoy
+python3 -m futbol sync [--eventos]               # baja estadísticas por jugador (y goles por minuto)
+python3 -m futbol validar                        # Brier y calibración del modelo, sin lookahead
+python3 -m futbol remates --top 20               # ritmo de remates por equipo y jugador
+python3 -m futbol partido <id> [--api] [--anotar]
+python3 -m futbol minutos [--minuto 70 --resultado 1-0 --cuota 2.1]
+python3 -m futbol noticias --partido <id> --rss <url>
+python3 -m futbol papel                          # liquida el diario en papel
+```
+
 ## Skills del proyecto
 - `/polymarket-analysis` — flujo de análisis completo y cómo interpretarlo sin engañarse.
 - De estadística (Kryhr, MIT): significancia y métricas deflactadas, sobreajuste, Monte Carlo, lookahead,

@@ -6,15 +6,28 @@ from pathlib import Path
 
 from polylens.config import JevConfig, _env, load_settings
 
-LPF = 128  # Liga Profesional Argentina en API-Football
+LPF = 128          # Liga Profesional Argentina en API-Football
+COPA_LIGA = 1032   # Copa de la Liga Profesional (2023 y 2024)
+# El plan gratis solo da 2022-2024; con un plan pago se cambia a "128:2026" (o se suma).
+DEFAULT_COMPETITIONS = ((COPA_LIGA, 2024), (LPF, 2024))
+
+
+def parse_competitions(text: str | None) -> tuple[tuple[int, int], ...]:
+    """'1032:2024,128:2024' -> ((1032, 2024), (128, 2024)), en orden cronológico."""
+    if not text:
+        return DEFAULT_COMPETITIONS
+    out = []
+    for part in str(text).split(","):
+        league, _, season = part.strip().partition(":")
+        out.append((int(league), int(season)))
+    return tuple(out)
 
 
 @dataclass(frozen=True)
 class FutbolConfig:
     api_key: str | None = None
     base_url: str = "https://v3.football.api-sports.io"
-    league: int = LPF
-    season: int = 2026
+    competitions: tuple = DEFAULT_COMPETITIONS
     bookmaker: str = "Bet365"
     min_interval_s: float = 6.5    # el plan gratis permite ~10 pedidos por minuto
     bankroll: float = 100.0        # presupuesto del usuario: toda simulación arranca con 100 USD
@@ -29,8 +42,7 @@ def load_config(dotenv: str | Path = ".env") -> FutbolConfig:
     return FutbolConfig(
         api_key=_env("APIFOOTBALL_KEY", None),
         base_url=_env("APIFOOTBALL_URL", FutbolConfig.base_url),
-        league=_env("FUTBOL_LIGA", LPF, int),
-        season=_env("FUTBOL_TEMPORADA", FutbolConfig.season, int),
+        competitions=parse_competitions(_env("FUTBOL_COMPETENCIAS", None)),
         bookmaker=_env("FUTBOL_CASA", FutbolConfig.bookmaker),
         min_interval_s=_env("APIFOOTBALL_MIN_INTERVAL_S", FutbolConfig.min_interval_s, float),
         bankroll=_env("FUTBOL_CAPITAL", FutbolConfig.bankroll, float),

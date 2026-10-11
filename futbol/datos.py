@@ -81,6 +81,10 @@ def appearances(data_dir: Path, league: int, season: int) -> list[dict]:
         teams_raw = _read(data_dir / "raw" / "players" / f"{fid}.json")
         if not teams_raw:
             continue
+        has_shots = any(((p.get("statistics") or [{}])[0].get("shots") or {}).get("total") is not None
+                        for team in teams_raw for p in team.get("players") or [])
+        if not has_shots:
+            continue  # partido sin datos de remates: contarlo como ceros sesgaría el modelo
         home_id = f["teams"]["home"]["id"]
         away_id = f["teams"]["away"]["id"]
         for team in teams_raw:
@@ -136,3 +140,33 @@ def goal_events(data_dir: Path, league: int, season: int) -> list[dict]:
         out.append({"fixture": fid, "ts": f["fixture"].get("timestamp") or 0, "goals": goals,
                     "final": (f["goals"].get("home"), f["goals"].get("away"))})
     return sorted(out, key=lambda m: m["ts"])
+
+
+def load_appearances(data_dir: Path, competitions) -> list[dict]:
+    rows = []
+    for league, season in competitions:
+        rows += [{**r, "league": league, "season": season} for r in appearances(data_dir, league, season)]
+    rows.sort(key=lambda r: (r["ts"], r["fixture"], r["team"], r["player"] or 0))
+    return rows
+
+
+def load_goal_events(data_dir: Path, competitions) -> list[dict]:
+    out = []
+    for league, season in competitions:
+        out += goal_events(data_dir, league, season)
+    return sorted(out, key=lambda m: m["ts"])
+
+
+def find_fixture(data_dir: Path, competitions, fixture_id: int) -> dict | None:
+    for league, season in competitions:
+        for f in _read(fixtures_path(Path(data_dir), league, season)) or []:
+            if f["fixture"]["id"] == fixture_id:
+                return f
+    return None
+
+
+def all_fixtures(data_dir: Path, competitions) -> list[dict]:
+    out = []
+    for league, season in competitions:
+        out += _read(fixtures_path(Path(data_dir), league, season)) or []
+    return sorted(out, key=lambda f: f["fixture"].get("timestamp") or 0)
