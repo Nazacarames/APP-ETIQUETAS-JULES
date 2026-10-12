@@ -465,7 +465,10 @@ COMMANDS = {"estado": cmd_estado, "ligas": cmd_ligas, "sync": cmd_sync, "validar
 
 def main(argv: list[str] | None = None, cfg: FutbolConfig | None = None) -> None:
     a = build_parser().parse_args(argv)
-    COMMANDS[a.cmd](a, cfg or load_config())
+    try:
+        COMMANDS[a.cmd](a, cfg or load_config())
+    except ApiError as exc:  # cupo agotado, plan sin acceso, cuenta suspendida: mensaje claro, sin traceback
+        sys.exit(f"{exc}\nRevisá tu cuenta en https://dashboard.api-football.com")
 
 
 if __name__ == "__main__":

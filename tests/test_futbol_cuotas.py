@@ -142,6 +142,17 @@ class TestMovementsClvHitRate(unittest.TestCase):
         self.assertEqual(cq.hit_rate(apps, 1, "sot", 1, last=5, before_ts=3), (2, 3))
 
 
+class TestApiErrorsAreFriendly(unittest.TestCase):
+    def test_suspended_account_exits_with_message(self):
+        def routes(path, q):
+            return {"errors": {"access": "Your account is suspended"}, "response": []}
+        api, _ = api_with(routes)
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(cli, "api_from", return_value=api), \
+                self.assertRaises(SystemExit) as cm:
+            cli.main(["estado"], FutbolConfig(data_dir=Path(d)))
+        self.assertIn("suspended", str(cm.exception.code))
+
+
 class TestSettle(unittest.TestCase):
     def test_settle(self):
         self.assertTrue(cq.settle_team("Match Winner", "Home", 2, 1))
